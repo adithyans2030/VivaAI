@@ -99,6 +99,11 @@ async def upload_document(
     await db.flush()
     await db.refresh(document)
 
+    # Trigger background ingestion
+    from app.services.rag import ingest_document_pipeline
+    import asyncio
+    asyncio.create_task(ingest_document_pipeline(document.id))
+
     return document
 
 
