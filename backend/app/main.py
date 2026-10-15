@@ -68,6 +68,11 @@ app.add_exception_handler(VivaIQError, vivaiq_exception_handler)
 # Include API v1 router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+# Include WebSocket router
+from app.ws.session_handler import router as ws_router
+
+app.include_router(ws_router, prefix=settings.API_V1_STR)
+
 
 @app.get("/health", tags=["system"])
 async def health_check() -> dict:

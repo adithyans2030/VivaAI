@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, Subject, VivaSession, Turn } from "@/lib/api";
+import { VivaWebSocketClient } from "@/lib/ws";
+import { AudioStreamRecorder } from "@/lib/audio-recorder";
 import AudioOrb, { ExaminerState } from "@/components/AudioOrb";
 import MicCheckModal from "@/components/MicCheckModal";
 import {
@@ -121,13 +123,36 @@ export default function StudentVivaPage() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Speech Recognition / Voice Input
+  // WebSocket & Audio Recorder references
+  const wsClientRef = useRef<VivaWebSocketClient | null>(null);
+  const recorderRef = useRef<AudioStreamRecorder | null>(null);
   const recognitionRef = useRef<any>(null);
 
   const startListening = () => {
     setCurrentTranscript("");
     if (typeof window === "undefined") return;
 
+    // Start Real-time Audio Stream Recorder to backend WebSocket
+    try {
+      const recorder = new AudioStreamRecorder({
+        onAudioChunk: (chunkB64, chunkIndex) => {
+          const currentTurnId = `turn-${currentTurnIndex + 1}`;
+          wsClientRef.current?.sendAudioChunk(currentTurnId, chunkIndex, chunkB64);
+        },
+        onVolumeChange: (vol) => {
+          setAudioLevel(vol);
+        },
+        onSpeechEnd: (durationMs) => {
+          handleSubmitAnswer();
+        },
+      });
+      recorder.start().catch((err) => console.warn("AudioStreamRecorder mic error:", err));
+      recorderRef.current = recorder;
+    } catch (e) {
+      console.warn("Could not start audio stream recorder:", e);
+    }
+
+    // Also run browser speech recognition for instant zero-latency visual captions
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -149,11 +174,10 @@ export default function StudentVivaPage() {
             }
           }
           setCurrentTranscript(final || interim);
-          setAudioLevel(0.4 + Math.random() * 0.5);
         };
 
         recognition.onerror = () => {
-          setAudioLevel(0.1);
+          // ignore
         };
 
         recognition.start();
@@ -161,16 +185,14 @@ export default function StudentVivaPage() {
       } catch (err) {
         console.error("Speech recognition error", err);
       }
-    } else {
-      // Audio level mock generator for browser unsupported speech recognition
-      const interval = setInterval(() => {
-        setAudioLevel(0.3 + Math.random() * 0.5);
-      }, 150);
-      return () => clearInterval(interval);
     }
   };
 
   const stopListening = () => {
+    if (recorderRef.current) {
+      recorderRef.current.stop();
+      recorderRef.current = null;
+    }
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
@@ -183,12 +205,14 @@ export default function StudentVivaPage() {
     setIsMicModalOpen(false);
     if (!selectedSubject) return;
 
+    let activeSessionId = "viva-sess-1";
     try {
       const sess = await api.createSession(selectedSubject.id);
       await api.recordConsent(sess.id, true);
       setSession(sess);
+      activeSessionId = sess.id;
     } catch {
-      // Mock session for UI
+      // Mock session for UI presentation
       const mockSess: VivaSession = {
         id: "viva-sess-1",
         student_id: "student-1",
@@ -200,6 +224,21 @@ export default function StudentVivaPage() {
       };
       setSession(mockSess);
     }
+
+    // Connect WebSocket
+    const token = (typeof window !== "undefined" && localStorage.getItem("vivaiq_token")) || "demo-token";
+    const ws = new VivaWebSocketClient(activeSessionId, token, {
+      onTranscript: (text, words) => {
+        if (text) setCurrentTranscript(text);
+      },
+      onStateChange: (st) => {
+        if (st === "processing" || st === "examiner_speaking" || st === "listening") {
+          setExaminerState(st as any);
+        }
+      },
+    });
+    ws.connect();
+    wsClientRef.current = ws;
 
     // Launch Question 1
     launchTurn(0);
@@ -221,6 +260,10 @@ export default function StudentVivaPage() {
   const handleSubmitAnswer = () => {
     stopListening();
     setExaminerState("processing");
+
+    const turnId = `turn-${currentTurnIndex + 1}`;
+    // Notify server via WebSocket that speech finished
+    wsClientRef.current?.sendSpeechEnd(turnId);
 
     const answer = currentTranscript.trim() || "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.";
 
