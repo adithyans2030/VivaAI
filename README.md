@@ -62,14 +62,27 @@ Start the FastAPI backend server:
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
-API Documentation will be accessible at: `http://localhost:8000/api/v1/docs`
+API Documentation is available at: `http://localhost:8000/api/v1/docs`
 
-### 3. Docker Deployment
+### 3. Frontend Setup
 ```bash
-docker compose up -d backend
-# With local Ollama GPU acceleration:
-docker compose --profile gpu up -d
+cd frontend
+npm install
+npm run dev
 ```
+Access the application at `http://localhost:3000`.
+
+### 4. One-Command Demo Database Seeding
+To populate sample users, subjects, syllabus materials, and pre-recorded viva sessions (both authentic and note-reading):
+```bash
+cd backend
+python -m app.scripts.seed_demo
+```
+- **Teacher Login**: `teacher@vivaiq.edu` / `TeacherPass123!`
+- **Student Login**: `alex@student.edu` / `StudentPass123!`
+- **Student Login**: `robert@student.edu` / `StudentPass123!`
+
+For the complete operator walkthrough, see [Operator Runbook](docs/runbook.md) and [Authenticity Methodology](docs/authenticity-methodology.md).
 
 ---
 
