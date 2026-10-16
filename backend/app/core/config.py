@@ -39,9 +39,9 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_PATH: Path = Path("./data/chromadb")
 
     # LLM Gateway
-    LLM_PROVIDER: Literal["ollama", "gemini", "grok", "mock"] = "mock"
+    LLM_PROVIDER: Literal["ollama", "gemini", "grok", "mock"] = "ollama"
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "qwen2.5:3b"
+    OLLAMA_MODEL: str = "gemma2:2b"
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-1.5-flash"
     GROK_API_KEY: str = ""

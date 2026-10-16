@@ -18,6 +18,7 @@ from app.core.security import decode_token
 from app.models.session import SessionStatus, VivaSession
 from app.models.turn import Turn
 from app.models.user import User
+from app.services.grader import get_grader_service
 from app.services.stt import get_stt_provider
 from app.services.tts import get_tts_provider
 from app.ws.connection_manager import manager
@@ -148,6 +149,10 @@ async def viva_session_websocket(
                 )
 
                 # Save transcript & turn metrics in database
+                subject_name = "Operating Systems"
+                question_text = "What are the core concepts?"
+                expected_points = []
+
                 async with async_session_factory() as db:
                     turn_stmt = select(Turn).where(Turn.id == turn_id)
                     turn = (await db.execute(turn_stmt)).scalar_one_or_none()
@@ -156,7 +161,43 @@ async def viva_session_websocket(
                         turn.word_timestamps = [w.model_dump() for w in stt_result.words]
                         turn.student_audio_path = str(audio_path)
                         turn.audio_duration_seconds = stt_result.duration_seconds
+                        question_text = turn.question_text
                         await db.commit()
+
+                # Execute AI Grader evaluation grounded in rubric
+                grader_service = get_grader_service()
+                grade_res = await grader_service.grade_answer(
+                    subject_name=subject_name,
+                    question_text=question_text,
+                    student_answer=stt_result.text,
+                    expected_key_points=expected_points,
+                )
+
+                # Update database turn with grade and feedback
+                async with async_session_factory() as db:
+                    turn_stmt = select(Turn).where(Turn.id == turn_id)
+                    turn = (await db.execute(turn_stmt)).scalar_one_or_none()
+                    if turn:
+                        turn.score_0_10 = grade_res.score_0_10
+                        turn.rubric_breakdown = grade_res.rubric.model_dump()
+                        turn.feedback = grade_res.feedback
+                        turn.followup_needed = grade_res.followup_needed
+                        turn.followup_type = grade_res.followup_type
+                        await db.commit()
+
+                # Dispatch feedback event to student UI
+                await manager.send_json(
+                    session_id,
+                    {
+                        "type": "feedback",
+                        "payload": {
+                            "turn_id": turn_id,
+                            "score_0_10": grade_res.score_0_10,
+                            "feedback": grade_res.feedback,
+                            "rubric": grade_res.rubric.model_dump(),
+                        },
+                    },
+                )
 
             elif msg_type == "repeat_question":
                 turn_id = payload.get("turn_id")

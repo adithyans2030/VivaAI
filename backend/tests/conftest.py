@@ -35,12 +35,25 @@ def anyio_backend():
 
 @pytest.fixture(autouse=True)
 async def setup_test_db() -> AsyncGenerator[None, None]:
-    """Create all tables before each test and drop them after."""
+    """Create all tables before each test and enforce mock providers for fast, deterministic CI."""
+    from app.core.config import settings
+    import app.services.llm as llm_module
+
+    prev_llm = settings.LLM_PROVIDER
+    prev_stt = settings.STT_PROVIDER
+    settings.LLM_PROVIDER = "mock"
+    settings.STT_PROVIDER = "mock"
+    llm_module._llm_instance = None
+
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+    settings.LLM_PROVIDER = prev_llm
+    settings.STT_PROVIDER = prev_stt
+    llm_module._llm_instance = None
 
 
 @pytest.fixture

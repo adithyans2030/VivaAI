@@ -9,6 +9,8 @@ from app.core.database import get_db
 from app.core.security import create_access_token
 from app.main import app
 from app.models.user import User
+from app.services.grader import GraderService
+from app.services.llm.mock import MockLLMProvider
 import app.ws.session_handler as ws_handler
 from tests.conftest import test_async_session
 
@@ -20,6 +22,11 @@ def test_websocket_viva_flow(
 ):
     # Route async_session_factory to test in-memory database
     monkeypatch.setattr(ws_handler, "async_session_factory", test_async_session)
+    monkeypatch.setattr(
+        ws_handler,
+        "get_grader_service",
+        lambda: GraderService(llm_provider=MockLLMProvider()),
+    )
 
     # Route get_db dependency to test in-memory database
     async def override_get_db() -> AsyncGenerator:
@@ -110,6 +117,11 @@ def test_websocket_viva_flow(
             assert msg2["type"] == "transcript"
             assert "text" in msg2["payload"]
             assert len(msg2["payload"]["words"]) > 0
+
+            # Expect feedback evaluated by grader
+            msg_feedback = ws.receive_json()
+            assert msg_feedback["type"] == "feedback"
+            assert "score_0_10" in msg_feedback["payload"]
 
             # End session
             ws.send_json({"type": "end_session", "payload": {}})
