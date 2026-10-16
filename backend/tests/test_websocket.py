@@ -88,29 +88,75 @@ def test_websocket_viva_flow(
 
         # 6. Connect WebSocket successfully after consent
         with client.websocket_connect(f"/api/v1/ws/sessions/{session_id}?token={student_token}") as ws:
-            # Ping / Pong
+            # 6.1 Reconnection handling: Server sends session_state immediately on connect
+            init_msg = ws.receive_json()
+            assert init_msg["type"] == "session_state"
+            assert init_msg["payload"]["session_id"] == session_id
+
+            # 6.2 Ping / Pong
             ws.send_json({"type": "ping", "payload": {"timestamp": 12345678}})
             resp = ws.receive_json()
             assert resp["type"] == "pong"
 
-            # Stream audio chunk
+            # 6.3 Request initial question
+            ws.send_json({"type": "request_question", "payload": {}})
+            # Examiner speaking state
+            msg_state1 = ws.receive_json()
+            assert msg_state1["type"] == "state_change"
+            assert msg_state1["payload"]["state"] == "examiner_speaking"
+
+            # Question event
+            msg_q = ws.receive_json()
+            assert msg_q["type"] == "question"
+            assert msg_q["payload"]["turn_number"] == 1
+            turn_id = msg_q["payload"]["turn_id"]
+
+            # Listening state
+            msg_listen = ws.receive_json()
+            assert msg_listen["type"] == "state_change"
+            assert msg_listen["payload"]["state"] == "listening"
+
+            # 6.4 Test repeat question logic and 1-repeat limit
+            ws.send_json({"type": "repeat_question", "payload": {"turn_id": turn_id}})
+            rep_state = ws.receive_json()
+            assert rep_state["type"] == "state_change"
+            rep_q = ws.receive_json()
+            assert rep_q["type"] == "question"
+            assert rep_q["payload"]["is_repeat"] is True
+            rep_listen = ws.receive_json()
+            assert rep_listen["type"] == "state_change"
+
+            # Second repeat must be rejected with REPEAT_LIMIT_EXCEEDED
+            ws.send_json({"type": "repeat_question", "payload": {"turn_id": turn_id}})
+            rep_err = ws.receive_json()
+            assert rep_err["type"] == "error"
+            assert rep_err["payload"]["code"] == "REPEAT_LIMIT_EXCEEDED"
+
+            # 6.5 Reject speech_end on nonexistent turn_id
+            ws.send_json({"type": "speech_end", "payload": {"turn_id": "nonexistent-turn-id"}})
+            err_turn = ws.receive_json()
+            assert err_turn["type"] == "error"
+            assert err_turn["payload"]["code"] == "INVALID_TURN"
+
+            # 6.6 Stream valid audio chunks
             dummy_pcm = b"\x00\x00" * 400
             chunk_b64 = base64.b64encode(dummy_pcm).decode("utf-8")
             ws.send_json({
                 "type": "audio_chunk",
-                "payload": {"turn_id": "turn-test-1", "chunk_index": 0, "audio_b64": chunk_b64},
+                "payload": {"turn_id": turn_id, "chunk_index": 0, "audio_b64": chunk_b64},
             })
 
-            # Send speech_end
+            # Send speech_end with valid turn_id
             ws.send_json({
                 "type": "speech_end",
-                "payload": {"turn_id": "turn-test-1", "duration_ms": 1200},
+                "payload": {"turn_id": turn_id, "duration_ms": 1200},
             })
 
-            # Expect state_change to processing
+            # Expect state_change to processing with real turn_number
             msg1 = ws.receive_json()
             assert msg1["type"] == "state_change"
             assert msg1["payload"]["state"] == "processing"
+            assert msg1["payload"]["turn_number"] == 1
 
             # Expect transcript with word timestamps
             msg2 = ws.receive_json()
@@ -123,10 +169,11 @@ def test_websocket_viva_flow(
             assert msg_feedback["type"] == "feedback"
             assert "score_0_10" in msg_feedback["payload"]
 
-            # End session
+            # 6.7 End session cleanly
             ws.send_json({"type": "end_session", "payload": {}})
             msg3 = ws.receive_json()
             assert msg3["type"] == "session_complete"
             assert msg3["payload"]["total_score"] > 0
 
     app.dependency_overrides.clear()
+

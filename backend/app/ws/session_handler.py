@@ -1,14 +1,13 @@
 """WebSocket endpoint handler for viva voce examination sessions."""
 
+import asyncio
 import base64
 from pathlib import Path
 import time
 from typing import Optional
-import uuid
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
@@ -18,21 +17,15 @@ from app.core.security import decode_token
 from app.models.session import SessionStatus, VivaSession
 from app.models.turn import Turn
 from app.models.user import User
+from app.services.audio_conversion import transcode_to_wav
 from app.services.grader import get_grader_service
+from app.services.session_state import get_viva_orchestrator
 from app.services.stt import get_stt_provider
-from app.services.tts import get_tts_provider
 from app.ws.connection_manager import manager
-from app.ws.protocol import (
-    AudioChunkPayload,
-    FeedbackPayload,
-    QuestionPayload,
-    SessionCompletePayload,
-    SpeechEndPayload,
-    StateChangePayload,
-    TranscriptPayload,
-)
 
 router = APIRouter(tags=["websocket"])
+
+IDLE_TIMEOUT_SECONDS = 60.0
 
 
 async def authenticate_ws(
@@ -75,13 +68,13 @@ async def viva_session_websocket(
     ticket: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
 ):
-    """Real-time voice viva session WebSocket endpoint supporting single-use tickets (WS-2.3)."""
+    """Real-time voice viva session WebSocket endpoint supporting tickets, reconnects, and streaming."""
     user = await authenticate_ws(websocket, session_id, ticket=ticket, token=token)
     if not user:
         await websocket.close(code=4401, reason="Authentication failed: invalid or expired ticket/token")
         return
 
-    # Verify session and consent
+    # Verify session ownership and consent
     async with async_session_factory() as db:
         stmt = (
             select(VivaSession)
@@ -111,13 +104,26 @@ async def viva_session_websocket(
 
     await manager.connect(session_id, websocket)
 
+    # Reconnection handling (WS-4): Send current recovery state immediately so client resumes without restart
+    orchestrator = get_viva_orchestrator()
+    async with async_session_factory() as db:
+        recovery_state = await orchestrator.get_recovery_state(db, session_id)
+        await manager.send_json(session_id, {"type": "session_state", "payload": recovery_state})
+
     # Prepare audio output directory for this session
     session_audio_dir = settings.AUDIO_STORAGE_PATH / session_id
     session_audio_dir.mkdir(parents=True, exist_ok=True)
 
     try:
         while True:
-            data = await websocket.receive_json()
+            try:
+                # Heartbeat keepalive: terminate orphaned connections after 60 seconds of client silence
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=IDLE_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                logger.info(f"WebSocket session {session_id} timed out after {IDLE_TIMEOUT_SECONDS}s of silence")
+                await websocket.close(code=1000, reason="Idle timeout reached")
+                break
+
             msg_type = data.get("type")
             payload = data.get("payload", {})
 
@@ -127,31 +133,125 @@ async def viva_session_websocket(
             elif msg_type == "audio_chunk":
                 chunk_b64 = payload.get("audio_b64", "")
                 if chunk_b64:
-                    raw_bytes = base64.b64decode(chunk_b64)
-                    manager.append_audio_chunk(session_id, raw_bytes)
+                    try:
+                        raw_bytes = base64.b64decode(chunk_b64, validate=True)
+                    except Exception:
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "error",
+                                "payload": {
+                                    "code": "INVALID_AUDIO_ENCODING",
+                                    "message": "Malformed base64 audio chunk received",
+                                },
+                            },
+                        )
+                        continue
+
+                    try:
+                        manager.append_audio_chunk(session_id, raw_bytes)
+                    except BufferError:
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "error",
+                                "payload": {
+                                    "code": "AUDIO_BUFFER_OVERFLOW",
+                                    "message": "Audio buffer exceeds maximum limit (5 minutes of 16kHz audio)",
+                                },
+                            },
+                        )
 
             elif msg_type == "speech_end":
-                turn_id = payload.get("turn_id", str(uuid.uuid4()))
-                # Retrieve buffered audio bytes
+                turn_id = payload.get("turn_id")
+                if not turn_id:
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "error",
+                            "payload": {"code": "INVALID_TURN", "message": "Missing turn_id in speech_end payload"},
+                        },
+                    )
+                    continue
+
+                # Validate turn existence in DB (Reject unknown turn_id without creating dummy turns)
+                async with async_session_factory() as db:
+                    turn_stmt = select(Turn).where(Turn.id == turn_id, Turn.session_id == session_id)
+                    existing_turn = (await db.execute(turn_stmt)).scalar_one_or_none()
+                    if not existing_turn:
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "error",
+                                "payload": {
+                                    "code": "INVALID_TURN",
+                                    "message": f"Turn '{turn_id}' does not exist for session",
+                                },
+                            },
+                        )
+                        continue
+                    active_turn_number = existing_turn.turn_number
+
+                # Retrieve buffered audio bytes and validate non-empty
                 audio_bytes = manager.consume_audio_buffer(session_id)
+                if not audio_bytes or len(audio_bytes.strip()) < 100:
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "code": "EMPTY_AUDIO",
+                                "message": "No audio received. Please speak your answer clearly.",
+                            },
+                        },
+                    )
+                    # Re-transition to listening state so student can try speaking again
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "state_change",
+                            "payload": {"state": "listening", "turn_number": active_turn_number},
+                        },
+                    )
+                    continue
 
-                # Persist raw candidate audio file to disk
-                audio_path = session_audio_dir / f"{turn_id}.wav"
-                with open(audio_path, "wb") as f:
-                    f.write(audio_bytes)
-
-                # Signal processing state
+                # Signal processing state with dynamic turn number derived from DB
                 await manager.send_json(
                     session_id,
                     {
                         "type": "state_change",
-                        "payload": {"state": "processing", "turn_number": 1},
+                        "payload": {"state": "processing", "turn_number": active_turn_number},
                     },
                 )
 
-                # Execute STT transcription with word-level timestamps
+                # Persist raw/transcoded audio asynchronously (non-blocking file write & ffmpeg)
+                audio_path = session_audio_dir / f"{turn_id}.wav"
+                await transcode_to_wav(audio_bytes, audio_path)
+
+                # Execute STT transcription (offloaded to thread inside provider)
                 stt_service = get_stt_provider()
-                stt_result = await stt_service.transcribe(audio_bytes if audio_bytes else audio_path)
+                try:
+                    stt_result = await stt_service.transcribe(audio_path)
+                except Exception as e:
+                    logger.error(f"STT transcription failed for turn {turn_id}: {e}")
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "code": "STT_FAILED",
+                                "message": "Speech transcription failed. Please repeat your answer.",
+                            },
+                        },
+                    )
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "state_change",
+                            "payload": {"state": "listening", "turn_number": active_turn_number},
+                        },
+                    )
+                    continue
 
                 # Broadcast transcript event to student UI
                 await manager.send_json(
@@ -166,25 +266,7 @@ async def viva_session_websocket(
                     },
                 )
 
-                # Ensure turn exists in DB
-                async with async_session_factory() as db:
-                    turn_stmt = select(Turn).where(Turn.id == turn_id)
-                    existing_turn = (await db.execute(turn_stmt)).scalar_one_or_none()
-                    if not existing_turn:
-                        existing_turn = Turn(
-                            id=turn_id,
-                            session_id=session_id,
-                            turn_number=1,
-                            question_text="Core concepts viva question",
-                            question_type="conceptual",
-                        )
-                        db.add(existing_turn)
-                        await db.commit()
-
                 # Execute AI Grader & Advisory Authenticity assessment
-                from app.services.session_state import get_viva_orchestrator
-                orchestrator = get_viva_orchestrator()
-
                 async with async_session_factory() as db:
                     turn, grade_res, auth_report = await orchestrator.evaluate_turn_submission(
                         db=db,
@@ -217,8 +299,6 @@ async def viva_session_websocket(
                 )
 
             elif msg_type in ("ready", "request_question"):
-                from app.services.session_state import get_viva_orchestrator
-                orchestrator = get_viva_orchestrator()
                 async with async_session_factory() as db:
                     active_turn, is_done = await orchestrator.get_or_create_next_question(db, session_id)
                     if is_done or not active_turn:
@@ -262,17 +342,64 @@ async def viva_session_websocket(
 
             elif msg_type == "repeat_question":
                 turn_id = payload.get("turn_id")
-                await manager.send_json(
-                    session_id,
-                    {
-                        "type": "state_change",
-                        "payload": {"state": "examiner_speaking", "turn_number": 1},
-                    },
-                )
+                async with async_session_factory() as db:
+                    turn_stmt = select(Turn).where(Turn.id == turn_id, Turn.session_id == session_id)
+                    turn = (await db.execute(turn_stmt)).scalar_one_or_none()
+                    if not turn:
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "error",
+                                "payload": {"code": "INVALID_TURN", "message": "Turn not found to repeat."},
+                            },
+                        )
+                        continue
+
+                    repeat_count = manager.get_repeat_count(session_id, turn.id)
+                    if repeat_count >= 1:
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "error",
+                                "payload": {
+                                    "code": "REPEAT_LIMIT_EXCEEDED",
+                                    "message": "Question repeat limit reached for this turn (maximum 1 repeat).",
+                                },
+                            },
+                        )
+                        continue
+
+                    manager.increment_repeat_count(session_id, turn.id)
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "state_change",
+                            "payload": {"state": "examiner_speaking", "turn_number": turn.turn_number},
+                        },
+                    )
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "question",
+                            "payload": {
+                                "turn_id": turn.id,
+                                "turn_number": turn.turn_number,
+                                "question_text": turn.question_text,
+                                "topic": turn.topic,
+                                "question_type": turn.question_type,
+                                "is_repeat": True,
+                            },
+                        },
+                    )
+                    await manager.send_json(
+                        session_id,
+                        {
+                            "type": "state_change",
+                            "payload": {"state": "listening", "turn_number": turn.turn_number},
+                        },
+                    )
 
             elif msg_type == "end_session":
-                from app.services.session_state import get_viva_orchestrator
-                orchestrator = get_viva_orchestrator()
                 async with async_session_factory() as db:
                     sess_stmt = (
                         select(VivaSession)
@@ -283,10 +410,17 @@ async def viva_session_websocket(
                         )
                     )
                     active_sess = (await db.execute(sess_stmt)).scalar_one_or_none()
-                    if active_sess:
-                        report = await orchestrator.finalize_session(db, active_sess)
-                    else:
-                        report = {"total_score": 8.0, "status": "completed"}
+                    if not active_sess:
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "error",
+                                "payload": {"code": "SESSION_NOT_FOUND", "message": "Session not found."},
+                            },
+                        )
+                        break
+
+                    report = await orchestrator.finalize_session(db, active_sess)
 
                 await manager.send_json(
                     session_id,

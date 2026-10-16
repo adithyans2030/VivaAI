@@ -1,6 +1,7 @@
 """Speech-to-Text (STT) service layer with faster-whisper and word-level timestamps."""
 
 from abc import ABC, abstractmethod
+import asyncio
 import io
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -167,13 +168,18 @@ class WhisperSTTProvider(BaseSTTProvider):
         if language == "auto":
             language = None
 
-        segments, info = self._model.transcribe(
-            audio_source,
-            beam_size=beam_size,
-            word_timestamps=True,
-            language=language,
-            initial_prompt=initial_prompt,
-        )
+        def _sync_transcribe():
+            segments_gen, info = self._model.transcribe(
+                audio_source,
+                beam_size=beam_size,
+                word_timestamps=True,
+                language=language,
+                initial_prompt=initial_prompt,
+            )
+            # Evaluate the generator inside the worker thread to perform real inference
+            return list(segments_gen), info
+
+        segments, info = await asyncio.to_thread(_sync_transcribe)
 
         words_list: List[STTWord] = []
         transcript_parts: List[str] = []
