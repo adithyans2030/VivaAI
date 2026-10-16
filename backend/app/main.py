@@ -82,10 +82,30 @@ async def health_check() -> dict:
 
 @app.get("/ready", tags=["system"])
 async def readiness_check() -> dict:
-    """Readiness probe checking storage and configuration."""
+    """Readiness probe checking real provider and model statuses."""
+    from app.services.stt import get_stt_provider, WhisperSTTProvider
+    from app.services.rag import get_rag_store
+
+    stt_provider = get_stt_provider()
+    stt_model_loaded = stt_provider.is_model_loaded()
+    stt_device = (
+        stt_provider.get_active_device()
+        if isinstance(stt_provider, WhisperSTTProvider)
+        else "mock"
+    )
+
+    rag_store = get_rag_store()
+    chroma_active = rag_store.is_chroma_active()
+
     return {
         "status": "ready",
+        "environment": settings.ENVIRONMENT,
+        "demo_mode": settings.DEMO_MODE,
         "llm_provider": settings.LLM_PROVIDER,
         "stt_provider": settings.STT_PROVIDER,
+        "stt_model_loaded": stt_model_loaded,
+        "stt_active_device": stt_device,
         "tts_provider": settings.TTS_PROVIDER,
+        "chroma_active": chroma_active,
+        "rag_store_mode": "chromadb" if chroma_active else "in_memory_tfidf",
     }

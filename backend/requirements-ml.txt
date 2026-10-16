@@ -1,0 +1,19 @@
+# Machine Learning, GPU & Acoustic Analysis Dependencies for VivaIQ
+# Install for real Whisper STT, ChromaDB vector store, and Prosodic Authenticity Analysis
+-r requirements.txt
+
+# PyTorch (CUDA acceleration recommended for GTX 1650 or compatible GPU)
+torch>=2.2.0
+
+# Speech-to-Text
+faster-whisper>=1.0.0
+
+# RAG & Semantic Embeddings
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+
+# Acoustic & Prosody Analysis (Pitch F0, energy, cadence)
+librosa>=0.10.1
+soundfile>=0.12.1
+scipy>=1.13.0
+praat-parselmouth>=0.4.3

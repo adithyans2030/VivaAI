@@ -1,5 +1,13 @@
 """Pytest configuration and asynchronous fixtures."""
 
+import os
+
+# Set testing environment variables before any app modules are loaded
+os.environ["ENVIRONMENT"] = "testing"
+os.environ["DEMO_MODE"] = "true"
+os.environ["STT_PROVIDER"] = "mock"
+os.environ["LLM_PROVIDER"] = "mock"
+
 from typing import AsyncGenerator
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -38,12 +46,19 @@ async def setup_test_db() -> AsyncGenerator[None, None]:
     """Create all tables before each test and enforce mock providers for fast, deterministic CI."""
     from app.core.config import settings
     import app.services.llm as llm_module
+    import app.services.stt as stt_module
 
+    prev_env = settings.ENVIRONMENT
+    prev_demo = settings.DEMO_MODE
     prev_llm = settings.LLM_PROVIDER
     prev_stt = settings.STT_PROVIDER
+
+    settings.ENVIRONMENT = "testing"
+    settings.DEMO_MODE = True
     settings.LLM_PROVIDER = "mock"
     settings.STT_PROVIDER = "mock"
     llm_module._llm_instance = None
+    stt_module._stt_instance = None
 
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -51,9 +66,12 @@ async def setup_test_db() -> AsyncGenerator[None, None]:
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
+    settings.ENVIRONMENT = prev_env
+    settings.DEMO_MODE = prev_demo
     settings.LLM_PROVIDER = prev_llm
     settings.STT_PROVIDER = prev_stt
     llm_module._llm_instance = None
+    stt_module._stt_instance = None
 
 
 @pytest.fixture

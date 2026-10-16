@@ -27,4 +27,9 @@ def get_llm_provider(force_provider: Optional[str] = None) -> BaseLLMProvider:
     elif provider_name == "grok":
         return GrokProvider(api_key=settings.GROK_API_KEY, model=settings.GROK_MODEL)
     else:
+        if not settings.DEMO_MODE and settings.ENVIRONMENT != "testing":
+            raise RuntimeError(
+                "LLM_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True. "
+                "Configure 'ollama', 'gemini', or 'grok', or set DEMO_MODE=True."
+            )
         return MockLLMProvider()

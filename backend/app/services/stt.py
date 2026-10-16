@@ -30,15 +30,27 @@ class BaseSTTProvider(ABC):
     """Abstract Base Class for Speech-to-Text engines."""
 
     @abstractmethod
-    async def transcribe(self, audio_data: Union[bytes, Path, str]) -> STTResult:
+    async def transcribe(
+        self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None
+    ) -> STTResult:
         """Transcribe audio bytes or audio file into text with word timestamps."""
+        pass
+
+    @abstractmethod
+    def is_model_loaded(self) -> bool:
+        """Check if model weights are loaded and ready."""
         pass
 
 
 class MockSTTProvider(BaseSTTProvider):
     """Deterministic Mock STT provider for CI, testing, and rapid dev."""
 
-    async def transcribe(self, audio_data: Union[bytes, Path, str]) -> STTResult:
+    def is_model_loaded(self) -> bool:
+        return True
+
+    async def transcribe(
+        self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None
+    ) -> STTResult:
         # Calculate approximate duration based on bytes if available
         duration = 3.5
         if isinstance(audio_data, bytes):
@@ -78,7 +90,14 @@ class WhisperSTTProvider(BaseSTTProvider):
 
     def __init__(self) -> None:
         self._model = None
+        self._active_device = settings.WHISPER_DEVICE
         self._init_model()
+
+    def is_model_loaded(self) -> bool:
+        return self._model is not None
+
+    def get_active_device(self) -> str:
+        return self._active_device
 
     def _init_model(self) -> None:
         try:
@@ -96,10 +115,12 @@ class WhisperSTTProvider(BaseSTTProvider):
                 device=device,
                 compute_type=compute_type,
             )
-            logger.info("faster-whisper model loaded successfully.")
+            self._active_device = device
+            logger.info(f"faster-whisper model loaded successfully on {device}.")
         except Exception as e:
             logger.warning(
-                f"Failed to initialize faster-whisper on {settings.WHISPER_DEVICE}: {e}. Falling back to CPU / mock mode."
+                f"CRITICAL WARNING: Failed to initialize faster-whisper on requested device '{settings.WHISPER_DEVICE}': {e}. "
+                "Attempting fallback to CPU..."
             )
             try:
                 from faster_whisper import WhisperModel
@@ -109,15 +130,29 @@ class WhisperSTTProvider(BaseSTTProvider):
                     device="cpu",
                     compute_type="int8",
                 )
-                logger.info("Fallback CPU faster-whisper model initialized.")
+                self._active_device = "cpu"
+                logger.warning("Fallback CPU faster-whisper model initialized. Transcription latency may increase.")
             except Exception as cpu_err:
-                logger.error(f"CPU fallback also failed: {cpu_err}. Switching to MockSTTProvider.")
+                logger.error(f"CPU fallback for faster-whisper also failed: {cpu_err}.")
                 self._model = None
+                # If demo mode or testing, allow mock fallback with clear log; otherwise fail explicitly
+                if settings.DEMO_MODE or settings.ENVIRONMENT == "testing":
+                    logger.warning("DEMO_MODE/TESTING is active: Using MockSTTProvider.")
+                else:
+                    raise RuntimeError(
+                        f"Failed to initialize faster-whisper STT on both '{settings.WHISPER_DEVICE}' and 'cpu': {cpu_err}. "
+                        "Install faster-whisper and torch, or run with DEMO_MODE=true / ENVIRONMENT=testing."
+                    )
 
-    async def transcribe(self, audio_data: Union[bytes, Path, str]) -> STTResult:
+    async def transcribe(
+        self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None
+    ) -> STTResult:
         if self._model is None:
-            # Fallback to mock if whisper couldn't load
-            return await MockSTTProvider().transcribe(audio_data)
+            if settings.DEMO_MODE or settings.ENVIRONMENT == "testing":
+                return await MockSTTProvider().transcribe(audio_data, initial_prompt=initial_prompt)
+            raise RuntimeError(
+                "Whisper model is not loaded. Cannot transcribe audio without a valid STT model."
+            )
 
         # Handle in-memory bytes or file path
         if isinstance(audio_data, bytes):
@@ -127,11 +162,17 @@ class WhisperSTTProvider(BaseSTTProvider):
         else:
             audio_source = audio_data
 
+        beam_size = getattr(settings, "WHISPER_BEAM_SIZE", 1)
+        language = getattr(settings, "WHISPER_LANGUAGE", "en")
+        if language == "auto":
+            language = None
+
         segments, info = self._model.transcribe(
             audio_source,
-            beam_size=5,
+            beam_size=beam_size,
             word_timestamps=True,
-            language="en",
+            language=language,
+            initial_prompt=initial_prompt,
         )
 
         words_list: List[STTWord] = []
@@ -169,5 +210,10 @@ def get_stt_provider() -> BaseSTTProvider:
         if settings.STT_PROVIDER == "whisper":
             _stt_instance = WhisperSTTProvider()
         else:
+            if not settings.DEMO_MODE and settings.ENVIRONMENT != "testing":
+                raise RuntimeError(
+                    "STT_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True. "
+                    "Set STT_PROVIDER='whisper' or configure DEMO_MODE=True."
+                )
             _stt_instance = MockSTTProvider()
     return _stt_instance

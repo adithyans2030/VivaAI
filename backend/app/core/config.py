@@ -1,11 +1,20 @@
 """VivaIQ Core Configuration Settings."""
 
 from functools import lru_cache
+import logging
 from pathlib import Path
+import secrets
 from typing import List, Literal, Union
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+KNOWN_SECRET_PLACEHOLDERS = {
+    "dev-secret-key-vivaiq-change-in-production-only",
+    "replace-this-with-a-secure-random-secret-key-in-production",
+    "change-me",
+    "",
+}
 
 
 class Settings(BaseSettings):
@@ -19,15 +28,17 @@ class Settings(BaseSettings):
     # Application
     PROJECT_NAME: str = "VivaIQ"
     ENVIRONMENT: Literal["development", "testing", "production"] = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
+    DEMO_MODE: bool = False
     API_V1_STR: str = "/api/v1"
     CORS_ORIGINS: Union[List[str], str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     # Security
-    SECRET_KEY: str = "dev-secret-key-vivaiq-change-in-production-only"
+    SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    AUDIO_RETENTION_DAYS: int = 30
 
     # Database
     DATABASE_URL: str = "sqlite+aiosqlite:///./vivaiq.db"
@@ -48,10 +59,12 @@ class Settings(BaseSettings):
     GROK_MODEL: str = "grok-beta"
 
     # STT Configuration
-    STT_PROVIDER: Literal["whisper", "mock"] = "mock"
+    STT_PROVIDER: Literal["whisper", "mock"] = "whisper"
     WHISPER_MODEL: str = "base.en"
     WHISPER_DEVICE: Literal["cuda", "cpu"] = "cuda"
     WHISPER_COMPUTE_TYPE: str = "float16"
+    WHISPER_LANGUAGE: str = "en"
+    WHISPER_BEAM_SIZE: int = 1
 
     # TTS Configuration
     TTS_PROVIDER: Literal["browser", "piper", "kokoro", "mock"] = "browser"
@@ -75,6 +88,38 @@ class Settings(BaseSettings):
         import json
 
         return json.loads(v)
+
+    @model_validator(mode="after")
+    def validate_secrets_and_providers(self) -> "Settings":
+        # Check SECRET_KEY in production
+        if self.ENVIRONMENT == "production":
+            if not self.SECRET_KEY or self.SECRET_KEY in KNOWN_SECRET_PLACEHOLDERS:
+                raise ValueError(
+                    "CRITICAL: Production environment cannot use default or placeholder SECRET_KEY. "
+                    "Set a secure random SECRET_KEY in your production environment variables."
+                )
+        else:
+            # Generate random dev key if placeholder or empty
+            if not self.SECRET_KEY or self.SECRET_KEY in KNOWN_SECRET_PLACEHOLDERS:
+                self.SECRET_KEY = secrets.token_hex(32)
+                logging.getLogger("uvicorn").warning(
+                    "WARNING: Using ephemeral random SECRET_KEY for non-production environment. Set SECRET_KEY in .env for persistent sessions."
+                )
+
+        # Enforce that mock STT / LLM is only permitted in testing or when DEMO_MODE=True
+        if not self.DEMO_MODE and self.ENVIRONMENT != "testing":
+            if self.STT_PROVIDER == "mock":
+                raise ValueError(
+                    "STT_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True. "
+                    "Set STT_PROVIDER='whisper' or configure DEMO_MODE=True."
+                )
+            if self.LLM_PROVIDER == "mock":
+                raise ValueError(
+                    "LLM_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True. "
+                    "Set LLM_PROVIDER to 'ollama', 'gemini', or 'grok', or configure DEMO_MODE=True."
+                )
+
+        return self
 
 
 @lru_cache

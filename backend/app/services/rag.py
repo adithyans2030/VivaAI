@@ -192,6 +192,11 @@ class BaseRAGStore(ABC):
     async def delete_document(self, subject_id: str, document_id: str) -> None:
         pass
 
+    @abstractmethod
+    def is_chroma_active(self) -> bool:
+        """Check if persistent ChromaDB client is initialized and active."""
+        pass
+
 
 class HybridRAGStore(BaseRAGStore):
     """Production vector store using ChromaDB if available with fallback memory store."""
@@ -200,6 +205,9 @@ class HybridRAGStore(BaseRAGStore):
         self._chroma_client = None
         self._in_memory_chunks: Dict[str, List[DocumentChunk]] = {}  # subject_id -> chunks
         self._init_chroma()
+
+    def is_chroma_active(self) -> bool:
+        return self._chroma_client is not None
 
     def _init_chroma(self) -> None:
         try:
