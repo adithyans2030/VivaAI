@@ -17,7 +17,9 @@ class RubricBreakdown(BaseModel):
 
 
 class GraderResult(BaseModel):
-    score_0_10: float = Field(..., ge=0.0, le=10.0)
+    score_0_10: Optional[float] = Field(None, ge=0.0, le=10.0)
+    grading_status: str = "completed"
+    security_flag: Optional[str] = None
     rubric: RubricBreakdown
     feedback: str
     followup_needed: bool = False

@@ -1,4 +1,4 @@
-"""AI Grader service for multi-dimensional rubric scoring and prompt-injection defense."""
+"""AI Grader service for multi-dimensional rubric scoring, repair prompting, and prompt-injection defense."""
 
 from pathlib import Path
 import re
@@ -54,13 +54,14 @@ class GraderService:
         expected_key_points: List[str],
         retrieved_context: str = "",
     ) -> GraderResult:
-        """Grade student answer and return validated Pydantic GraderResult."""
+        """Grade student answer against course ground-truth with repair prompting on JSON failure."""
         answer_clean = student_answer.strip()
 
         # Handle empty answer
         if not answer_clean:
             return GraderResult(
                 score_0_10=0.0,
+                grading_status="completed",
                 rubric=RubricBreakdown(
                     correctness=0.0,
                     completeness=0.0,
@@ -74,29 +75,19 @@ class GraderService:
                 followup_type="clarification",
             )
 
-        # Handle adversarial prompt injection
+        # Handle adversarial prompt injection (Flag for teacher review, do not automatically score 0)
+        security_flag = None
         if self.detect_adversarial_injection(answer_clean):
             logger.warning(f"Adversarial prompt injection pattern detected in answer: '{answer_clean[:60]}...'")
-            return GraderResult(
-                score_0_10=0.0,
-                rubric=RubricBreakdown(
-                    correctness=0.0,
-                    completeness=0.0,
-                    clarity=1.0,
-                    depth=0.0,
-                    missing_points=expected_key_points or ["Valid subject-matter explanation"],
-                    incorrect_claims=["Instruction override pattern detected in spoken answer"],
-                ),
-                feedback="Adversarial prompt injection detected. Answers must be provided in your own words addressing the question directly.",
-                followup_needed=True,
-                followup_type="probe",
-            )
+            security_flag = "prompt_injection_attempt"
 
         # Handle "I don't know" or brief admissions of unfamiliarity
         idk_patterns = [r"^i\s+(do\s+not|don't)\s+know", r"^no\s+idea", r"^not\s+sure"]
         if any(re.search(p, answer_clean.lower()) for p in idk_patterns):
             return GraderResult(
                 score_0_10=1.5,
+                grading_status="completed",
+                security_flag=security_flag,
                 rubric=RubricBreakdown(
                     correctness=1.0,
                     completeness=1.0,
@@ -110,7 +101,7 @@ class GraderService:
                 followup_type="none",
             )
 
-        # Build prompt from versioned template
+        # Build prompt from versioned template with full context injection
         prompt = self.grading_prompt_template
         prompt = prompt.replace("{{subject_name}}", subject_name)
         prompt = prompt.replace("{{retrieved_context}}", retrieved_context or "General curriculum standard")
@@ -118,46 +109,74 @@ class GraderService:
         prompt = prompt.replace("{{expected_key_points}}", "\n- ".join(expected_key_points) or "Key principles")
         prompt = prompt.replace("{{student_answer}}", answer_clean)
 
+        res_json = None
         try:
             res_json = await self.llm.generate_json(prompt)
-
-            # Validate rubric structure
-            rubric_data = res_json.get("rubric", {})
-            rubric = RubricBreakdown(
-                correctness=float(rubric_data.get("correctness", 7.0)),
-                completeness=float(rubric_data.get("completeness", 7.0)),
-                clarity=float(rubric_data.get("clarity", 7.0)),
-                depth=float(rubric_data.get("depth", 7.0)),
-                missing_points=rubric_data.get("missing_points", []),
-                incorrect_claims=rubric_data.get("incorrect_claims", []),
+        except Exception as first_err:
+            logger.warning(f"Initial LLM grading JSON parsing failed: {first_err}. Attempting repair prompt...")
+            # Repair prompt fallback
+            repair_prompt = (
+                f"The previous response to grading the student answer was not valid JSON. "
+                f"Please fix and return ONLY a valid JSON object matching the required schema with keys "
+                f"'score_0_10', 'rubric', 'feedback', 'followup_needed', 'followup_type'.\n"
+                f"Subject: {subject_name}\nQuestion: {question_text}\nAnswer: {answer_clean}"
             )
+            try:
+                res_json = await self.llm.generate_json(repair_prompt)
+            except Exception as repair_err:
+                logger.error(f"LLM grading repair prompt also failed: {repair_err}. Marking grading as failed.")
+                # Mark turn as failed without numerical score; alert teacher (never default to 7.5)
+                return GraderResult(
+                    score_0_10=None,
+                    grading_status="failed",
+                    security_flag=security_flag,
+                    rubric=RubricBreakdown(
+                        correctness=0.0,
+                        completeness=0.0,
+                        clarity=0.0,
+                        depth=0.0,
+                        missing_points=[],
+                        incorrect_claims=[],
+                    ),
+                    feedback="Grading unavailable — teacher review required.",
+                    followup_needed=False,
+                    followup_type="none",
+                )
 
-            score = float(res_json.get("score_0_10", 7.0))
-            score = max(0.0, min(10.0, score))
+        # Validate rubric structure
+        rubric_data = res_json.get("rubric", {})
+        correctness = float(rubric_data.get("correctness", 7.0))
+        completeness = float(rubric_data.get("completeness", 7.0))
+        clarity = float(rubric_data.get("clarity", 7.0))
+        depth = float(rubric_data.get("depth", 7.0))
 
-            return GraderResult(
-                score_0_10=round(score, 1),
-                rubric=rubric,
-                feedback=res_json.get("feedback", "Good effort answering the question."),
-                followup_needed=bool(res_json.get("followup_needed", False)),
-                followup_type=res_json.get("followup_type", "none"),
-            )
-        except Exception as e:
-            logger.error(f"LLM grading failed: {e}. Using deterministic evaluation fallback.")
-            return GraderResult(
-                score_0_10=7.5,
-                rubric=RubricBreakdown(
-                    correctness=7.5,
-                    completeness=7.0,
-                    clarity=8.0,
-                    depth=7.0,
-                    missing_points=[],
-                    incorrect_claims=[],
-                ),
-                feedback="Good spoken response addressing the key points asked.",
-                followup_needed=False,
-                followup_type="none",
-            )
+        # Recompute score_0_10 strictly according to weighted rubric formula (WS-6 Rubric Consistency)
+        # Formula: (correctness * 0.40) + (completeness * 0.25) + (clarity * 0.15) + (depth * 0.20)
+        computed_score = (correctness * 0.40) + (completeness * 0.25) + (clarity * 0.15) + (depth * 0.20)
+        score_0_10 = round(max(0.0, min(10.0, computed_score)), 1)
+
+        rubric = RubricBreakdown(
+            correctness=correctness,
+            completeness=completeness,
+            clarity=clarity,
+            depth=depth,
+            missing_points=rubric_data.get("missing_points", []),
+            incorrect_claims=rubric_data.get("incorrect_claims", []),
+        )
+
+        feedback_text = res_json.get("feedback", "Good effort answering the question.")
+        if security_flag:
+            feedback_text = f"{feedback_text} [Notice: Input pattern flagged for teacher review]"
+
+        return GraderResult(
+            score_0_10=score_0_10,
+            grading_status="completed",
+            security_flag=security_flag,
+            rubric=rubric,
+            feedback=feedback_text,
+            followup_needed=bool(res_json.get("followup_needed", False)),
+            followup_type=res_json.get("followup_type", "none"),
+        )
 
 
 _grader_instance: Optional[GraderService] = None

@@ -154,19 +154,27 @@ class VivaSessionOrchestrator:
         turn.student_audio_path = audio_path
         turn.audio_duration_seconds = audio_duration_seconds
 
-        # 1. Rubric Grading via LLM
+        # 1. Rubric Grading via LLM with full grounded context injection (WS-6)
         expected_points = [
             ref.get("text", "") for ref in (turn.source_references or [])
         ]
+        retrieved_context = "\n\n".join(
+            ref.get("text", "") for ref in (turn.source_references or []) if ref.get("text")
+        )
         grade_res = await self.grader.grade_answer(
             subject_name=session.subject.name if session.subject else "Subject",
             question_text=turn.question_text,
             student_answer=student_transcript,
             expected_key_points=expected_points,
+            retrieved_context=retrieved_context,
         )
 
         turn.score_0_10 = grade_res.score_0_10
-        turn.rubric_breakdown = grade_res.rubric.model_dump()
+        turn.rubric_breakdown = {
+            **grade_res.rubric.model_dump(),
+            "grading_status": grade_res.grading_status,
+            "security_flag": grade_res.security_flag,
+        }
         turn.feedback = grade_res.feedback
         turn.followup_needed = grade_res.followup_needed
         turn.followup_type = grade_res.followup_type

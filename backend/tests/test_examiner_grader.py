@@ -71,9 +71,8 @@ async def test_grader_normal_and_prompt_injection():
         student_answer=injection_answer,
         expected_key_points=["Resource allocation safety check"],
     )
-    assert injection_result.score_0_10 == 0.0
-    assert injection_result.rubric.correctness == 0.0
-    assert "injection" in injection_result.feedback.lower()
+    assert injection_result.security_flag == "prompt_injection_attempt"
+    assert "flagged for teacher review" in injection_result.feedback.lower()
 
     # 3. "I don't know" handling
     idk_result = await grader.grade_answer(
@@ -84,3 +83,44 @@ async def test_grader_normal_and_prompt_injection():
     )
     assert idk_result.score_0_10 < 3.0
     assert "acknowledged" in idk_result.feedback.lower()
+
+
+@pytest.mark.asyncio
+async def test_grader_rubric_consistency():
+    """Verify that score_0_10 is strictly recomputed from rubric dimensions."""
+    grader = GraderService(prompt_version="v1", llm_provider=MockLLMProvider())
+    result = await grader.grade_answer(
+        subject_name="Databases",
+        question_text="What are ACID properties?",
+        student_answer="Atomicity, Consistency, Isolation, and Durability.",
+        expected_key_points=["Atomicity", "Consistency", "Isolation", "Durability"],
+    )
+    # Formula: (correctness * 0.40) + (completeness * 0.25) + (clarity * 0.15) + (depth * 0.20)
+    expected_score = round(
+        (result.rubric.correctness * 0.40)
+        + (result.rubric.completeness * 0.25)
+        + (result.rubric.clarity * 0.15)
+        + (result.rubric.depth * 0.20),
+        1,
+    )
+    assert result.score_0_10 == expected_score
+
+
+@pytest.mark.asyncio
+async def test_grader_json_repair_and_failure():
+    """Verify repair prompt is attempted on JSON error; if repair fails, grading_status='failed' with score None."""
+    class FailingLLMProvider:
+        async def generate_json(self, prompt: str):
+            raise ValueError("Invalid JSON response from LLM")
+
+    failing_grader = GraderService(prompt_version="v1", llm_provider=FailingLLMProvider())
+    result = await failing_grader.grade_answer(
+        subject_name="Algorithms",
+        question_text="Explain Dijkstra's algorithm.",
+        student_answer="It uses a priority queue to find shortest paths from a single source.",
+        expected_key_points=["Priority queue", "Greedy choice", "Non-negative weights"],
+    )
+    assert result.grading_status == "failed"
+    assert result.score_0_10 is None
+    assert "teacher review required" in result.feedback.lower()
+
