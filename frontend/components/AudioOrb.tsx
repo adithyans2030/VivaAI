@@ -17,97 +17,99 @@ interface AudioOrbProps {
 }
 
 export default function AudioOrb({ state, audioLevel = 0, onClick }: AudioOrbProps) {
-  // Config per state
+  // Tailored to Sage Celadon & Forest Pine aesthetic
   const config = {
     idle: {
       label: "Waiting to Begin",
-      color: "from-slate-700 via-indigo-900 to-slate-900",
-      glow: "shadow-indigo-900/30",
-      border: "border-slate-700/60",
+      color: "from-[var(--border-default)] via-[var(--bg-card-subtle)] to-[var(--bg-card)]",
+      glow: "shadow-black/10",
+      border: "border-[var(--border-default)]",
       icon: Sparkles,
-      iconColor: "text-slate-400",
-      subtext: "Click or initiate voice session",
+      iconColor: "text-[var(--text-muted)]",
+      subtext: "Initiate your voice examination",
     },
     examiner_speaking: {
       label: "Examiner Speaking",
-      color: "from-indigo-600 via-indigo-500 to-sky-400",
-      glow: "shadow-indigo-500/50",
-      border: "border-indigo-400/80",
+      color: "from-[#2D4F44] via-[#3E6B5D] to-[#6EA291]",
+      glow: "shadow-[var(--accent-primary)]/40",
+      border: "border-[#6EA291]/80",
       icon: Volume2,
       iconColor: "text-white",
       subtext: "Listen carefully to the question",
     },
     listening: {
       label: "Listening to Your Answer...",
-      color: "from-emerald-600 via-teal-500 to-cyan-400",
-      glow: "shadow-emerald-500/50",
-      border: "border-emerald-400/80",
+      color: "from-[#1B4332] via-[#2D6A4F] to-[#74C69D]",
+      glow: "shadow-emerald-500/40",
+      border: "border-[#74C69D]/80",
       icon: Mic,
       iconColor: "text-white",
       subtext: "Speak naturally in your own words",
     },
     processing: {
       label: "Evaluating Understanding...",
-      color: "from-amber-600 via-violet-600 to-indigo-600",
-      glow: "shadow-amber-500/40",
-      border: "border-amber-400/70",
+      color: "from-[#2D4F44] via-[#D97706] to-[#6EA291]",
+      glow: "shadow-amber-500/30",
+      border: "border-amber-400/60",
       icon: Loader2,
-      iconColor: "text-amber-300",
-      subtext: "Transcribing and scoring response",
+      iconColor: "text-amber-200",
+      subtext: "Analyzing response & grounded rubric",
     },
     completed: {
       label: "Viva Examination Completed",
-      color: "from-emerald-600 via-teal-600 to-slate-800",
-      glow: "shadow-emerald-500/40",
-      border: "border-emerald-500",
+      color: "from-[#1B4332] via-[#2D4F44] to-[#40916C]",
+      glow: "shadow-emerald-500/30",
+      border: "border-emerald-400/80",
       icon: CheckCircle2,
-      iconColor: "text-emerald-300",
-      subtext: "Review your detailed report below",
+      iconColor: "text-white",
+      subtext: "Review your comprehensive score report below",
     },
   }[state];
 
   const IconComponent = config.icon;
 
-  // Scale based on audio level
-  const dynamicScale = state === "listening" ? 1 + audioLevel * 0.25 : 1;
+  // Calculate dynamic scale based on audio volume
+  const dynamicScale = state === "listening" ? 1 + audioLevel * 0.35 : 1;
 
   return (
-    <div className="flex flex-col items-center justify-center p-6 select-none">
-      {/* Outer Pulse Rings */}
-      <div className="relative flex items-center justify-center cursor-pointer" onClick={onClick}>
-        {/* Ambient Ring 1 */}
-        <div
-          className={`absolute w-64 h-64 rounded-full opacity-20 blur-xl bg-gradient-to-tr ${config.color} ${
-            state === "examiner_speaking" || state === "listening" ? "animate-pulse" : ""
-          }`}
-        />
+    <div
+      onClick={onClick}
+      className="flex flex-col items-center justify-center p-6 space-y-5 select-none relative group cursor-default"
+    >
+      {/* Outer ambient wave rings */}
+      <div className="relative flex items-center justify-center">
+        {state === "listening" && (
+          <>
+            <div
+              className="absolute w-52 h-52 rounded-full border border-emerald-500/30 animate-ping pointer-events-none"
+              style={{ animationDuration: "2.4s" }}
+            />
+            <div
+              className="absolute w-44 h-44 rounded-full border border-emerald-400/40 animate-pulse-ring pointer-events-none"
+              style={{ transform: `scale(${1 + audioLevel * 0.6})` }}
+            />
+          </>
+        )}
 
-        {/* Dynamic Expanding Ring for speech */}
-        {(state === "examiner_speaking" || state === "listening") && (
+        {state === "examiner_speaking" && (
           <div
-            className={`absolute w-52 h-52 rounded-full border-2 ${
-              state === "listening" ? "border-emerald-400/40" : "border-indigo-400/40"
-            } animate-ping opacity-30`}
+            className="absolute w-44 h-44 rounded-full border border-[var(--border-focus)]/30 animate-pulse-ring pointer-events-none"
+            style={{ animationDuration: "2s" }}
           />
         )}
 
-        {/* Middle decorative ring */}
+        {/* Central Luminous Sphere */}
         <div
-          className={`absolute w-44 h-44 rounded-full border ${config.border} opacity-40 ${
-            state === "processing" ? "animate-spin" : ""
-          }`}
-          style={{ animationDuration: "8s" }}
-        />
-
-        {/* Central Orb */}
-        <div
-          style={{ transform: `scale(${dynamicScale})`, transition: "transform 0.1s ease-out" }}
-          className={`relative w-36 h-36 rounded-full bg-gradient-to-tr ${config.color} p-0.5 shadow-2xl ${config.glow} flex items-center justify-center transition-all duration-300`}
+          className={`w-36 h-36 rounded-full bg-gradient-to-tr ${config.color} border-2 ${config.border} shadow-2xl ${config.glow} flex items-center justify-center transition-all duration-150 relative overflow-hidden backdrop-blur-md`}
+          style={{ transform: `scale(${dynamicScale})` }}
         >
-          {/* Inner glass layer */}
-          <div className="w-full h-full rounded-full bg-slate-950/40 backdrop-blur-md flex flex-col items-center justify-center gap-1.5 border border-white/20">
+          {/* Inner glass glossy highlight */}
+          <div className="absolute top-2 left-6 w-16 h-8 rounded-full bg-white/20 blur-xs -rotate-45 pointer-events-none" />
+
+          {/* Icon */}
+          <div className="relative z-10 flex items-center justify-center">
             <IconComponent
-              className={`w-9 h-9 ${config.iconColor} ${
+              className={`w-10 h-10 ${config.iconColor} ${
                 state === "processing" ? "animate-spin" : ""
               }`}
             />
@@ -115,28 +117,20 @@ export default function AudioOrb({ state, audioLevel = 0, onClick }: AudioOrbPro
         </div>
       </div>
 
-      {/* Reactive Waveform Bars (shown while student is speaking) */}
-      {state === "listening" && (
-        <div className="flex items-center gap-1.5 h-10 mt-6">
-          {[0.3, 0.7, 1.0, 0.6, 0.9, 0.4, 0.8, 0.5, 0.95, 0.6, 0.3].map((height, i) => (
-            <div
-              key={i}
-              className="w-1.5 rounded-full bg-emerald-400 transition-all duration-75"
-              style={{
-                height: `${Math.max(6, height * 36 * (audioLevel > 0.05 ? audioLevel * 1.5 : 0.2))}px`,
-                opacity: audioLevel > 0.05 ? 0.9 : 0.4,
-              }}
-            />
-          ))}
+      {/* State Label & Guidance */}
+      <div className="text-center space-y-1">
+        <div className="flex items-center justify-center gap-2">
+          {state === "listening" && (
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          )}
+          {state === "examiner_speaking" && (
+            <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)] animate-pulse" />
+          )}
+          <span className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
+            {config.label}
+          </span>
         </div>
-      )}
-
-      {/* State Label & Subtext */}
-      <div className="text-center mt-6">
-        <h3 className="text-lg font-semibold tracking-tight text-white flex items-center justify-center gap-2">
-          {config.label}
-        </h3>
-        <p className="text-xs text-slate-400 mt-1 max-w-sm">{config.subtext}</p>
+        <p className="text-xs text-[var(--text-muted)] max-w-xs">{config.subtext}</p>
       </div>
     </div>
   );

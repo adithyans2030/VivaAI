@@ -7,18 +7,18 @@ import { VivaWebSocketClient } from "@/lib/ws";
 import { AudioStreamRecorder } from "@/lib/audio-recorder";
 import AudioOrb, { ExaminerState } from "@/components/AudioOrb";
 import MicCheckModal from "@/components/MicCheckModal";
+import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
 import {
   BookOpen,
   Mic,
   RotateCcw,
   Sparkles,
   ArrowRight,
-  ShieldAlert,
-  Award,
+  ShieldCheck,
   Layers,
   ChevronRight,
-  HelpCircle,
-  FileText,
+  CheckCircle2,
 } from "lucide-react";
 
 export default function StudentVivaPage() {
@@ -87,7 +87,6 @@ export default function StudentVivaPage() {
         }
       })
       .catch(() => {
-        // Fallback for immediate UI presentation
         const mockSubject: Subject = {
           id: "cs301-demo",
           name: "Operating Systems & Concurrency",
@@ -139,11 +138,10 @@ export default function StudentVivaPage() {
     setCurrentTranscript("");
     if (typeof window === "undefined") return;
 
-    // Start Real-time Audio Stream Recorder to backend WebSocket
     try {
       const recorder = new AudioStreamRecorder({
         onAudioChunk: (chunkB64, chunkIndex) => {
-          const currentTurnId = `turn-${currentTurnIndex + 1}`;
+          const currentTurnId = currentQuestion?.turn_id || `turn-${currentTurnIndex + 1}`;
           wsClientRef.current?.sendAudioChunk(currentTurnId, chunkIndex, chunkB64);
         },
         onVolumeChange: (vol) => {
@@ -159,7 +157,6 @@ export default function StudentVivaPage() {
       console.warn("Could not start audio stream recorder:", e);
     }
 
-    // Also run browser speech recognition for instant zero-latency visual captions
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -183,10 +180,7 @@ export default function StudentVivaPage() {
           setCurrentTranscript(final || interim);
         };
 
-        recognition.onerror = () => {
-          // ignore
-        };
-
+        recognition.onerror = () => {};
         recognition.start();
         recognitionRef.current = recognition;
       } catch (err) {
@@ -219,7 +213,6 @@ export default function StudentVivaPage() {
       setSession(sess);
       activeSessionId = sess.id;
     } catch {
-      // Mock session for UI presentation
       const mockSess: VivaSession = {
         id: "viva-sess-1",
         student_id: "student-1",
@@ -306,7 +299,6 @@ export default function StudentVivaPage() {
     setExaminerState("processing");
 
     const turnId = currentQuestion?.turn_id || `turn-${currentTurnIndex + 1}`;
-    // Notify server via WebSocket that speech finished
     wsClientRef.current?.sendSpeechEnd(turnId);
 
     const answer = currentTranscript.trim() || "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.";
@@ -362,181 +354,192 @@ export default function StudentVivaPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
-      {/* Subject selection screen if no active session */}
+    <div className="max-w-6xl mx-auto px-4 py-8 space-y-8 text-[var(--text-primary)]">
+      {/* ------------------------------------------------------------- */}
+      {/* Subject Selection View                                        */}
+      {/* ------------------------------------------------------------- */}
       {!session ? (
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div className="text-center space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-              Examination Room
-            </span>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Select Subject for Viva Voce</h1>
-            <p className="text-sm text-slate-400">
-              The AI examiner will ask questions grounded in your course material and evaluate your spoken answers.
+        <div className="max-w-3xl mx-auto space-y-8 py-6">
+          <div className="text-center space-y-3">
+            <div className="flex items-center justify-center gap-2">
+              <span className="w-5 h-[1.5px] bg-[var(--text-secondary)]" />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
+                Examination Room
+              </span>
+            </div>
+            <h1 className="font-editorial text-4xl sm:text-5xl font-normal tracking-tight">
+              Select Subject for Viva Voce
+            </h1>
+            <p className="text-sm text-[var(--text-secondary)] max-w-md mx-auto leading-relaxed">
+              The AI examiner asks questions grounded directly in your syllabus and evaluates your spoken answers in real time.
             </p>
           </div>
 
-          <div className="grid gap-4 mt-6">
+          <div className="grid gap-4 mt-8">
             {subjects.map((subj) => (
               <div
                 key={subj.id}
                 onClick={() => setSelectedSubject(subj)}
-                className={`p-5 rounded-2xl border transition-all cursor-pointer ${
+                className={`p-6 rounded-2xl border transition-all cursor-pointer ${
                   selectedSubject?.id === subj.id
-                    ? "bg-indigo-950/40 border-indigo-500 shadow-lg shadow-indigo-500/10"
-                    : "glass-panel border-slate-800 hover:border-slate-700 hover:bg-slate-900/60"
+                    ? "bg-[var(--bg-card)] border-[var(--border-focus)] shadow-md ring-1 ring-[var(--border-focus)]"
+                    : "bg-[var(--bg-card)] border-[var(--border-default)] hover:border-[var(--text-secondary)] hover:bg-[var(--bg-card-subtle)]"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-sm">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-[var(--bg-hero)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)] font-bold text-sm">
                       {subj.code}
                     </div>
                     <div>
-                      <h3 className="text-base font-semibold text-white">{subj.name}</h3>
-                      <p className="text-xs text-slate-400 line-clamp-1">{subj.description}</p>
+                      <h3 className="text-base font-semibold text-[var(--text-primary)]">{subj.name}</h3>
+                      <p className="text-xs text-[var(--text-secondary)] line-clamp-1 mt-0.5">{subj.description}</p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-slate-500" />
+                  <ChevronRight className="w-5 h-5 text-[var(--text-muted)]" />
                 </div>
               </div>
             ))}
           </div>
 
           <div className="flex justify-end pt-4">
-            <button
+            <Button
               onClick={() => setIsMicModalOpen(true)}
               disabled={!selectedSubject}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm shadow-xl shadow-indigo-500/25 transition-all cursor-pointer disabled:opacity-50"
+              variant="primary"
+              size="lg"
             >
               <Mic className="w-4 h-4" />
-              Begin Microphone Check & Consent
-            </button>
+              <span>Begin Microphone Check & Consent</span>
+            </Button>
           </div>
         </div>
       ) : (
-        /* Active Viva Room */
+        /* ------------------------------------------------------------- */
+        /* Active Live Viva Room                                         */
+        /* ------------------------------------------------------------- */
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Main Focus Area (Audio Orb & Current Question) */}
+          {/* Main Focus Area (Hero Audio Orb & Active Question) */}
           <div className="lg:col-span-8 space-y-6">
             {/* Top Progress Bar */}
-            <div className="glass-panel p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+            <div className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] flex items-center justify-between shadow-xs">
               <div>
-                <span className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider">
+                <span className="text-[11px] font-semibold text-[var(--accent-primary)] uppercase tracking-wider block">
                   {selectedSubject?.code} • {selectedSubject?.name}
                 </span>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="text-xs text-[var(--text-muted)] mt-0.5">
                   Question {currentTurnIndex + 1} of {sampleTurns.length}
                 </div>
               </div>
 
               {/* Badges */}
               <div className="flex items-center gap-2">
-                <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 capitalize">
+                <Badge variant="default" className="capitalize">
                   {currentQuestion?.question_type || sampleTurns[currentTurnIndex]?.question_type} Question
-                </span>
+                </Badge>
                 {repeatedCount === 0 && examinerState === "listening" && (
-                  <button
+                  <Button
                     onClick={handleRepeatQuestion}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                    variant="outline"
+                    size="sm"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    Repeat Question
-                  </button>
+                    <span>Repeat Question</span>
+                  </Button>
                 )}
               </div>
             </div>
 
             {/* Central Examiner Orb Container */}
-            <div className="glass-panel p-8 rounded-3xl border border-slate-800/80 flex flex-col items-center justify-center min-h-[380px] relative overflow-hidden">
+            <div className="p-8 sm:p-12 rounded-3xl bg-[var(--bg-card)] border border-[var(--border-default)] flex flex-col items-center justify-center min-h-[400px] relative overflow-hidden shadow-xs">
               <AudioOrb state={examinerState} audioLevel={audioLevel} />
 
               {/* Active Spoken Question Card */}
               {examinerState !== "idle" && (
-                <div className="mt-4 p-5 rounded-2xl bg-slate-900/90 border border-slate-700/80 max-w-xl text-center space-y-2 shadow-xl animate-in fade-in duration-300">
-                  <div className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider flex items-center justify-center gap-1">
+                <div className="mt-6 p-6 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] max-w-xl text-center space-y-2 shadow-xs animate-in fade-in duration-300">
+                  <div className="text-[11px] font-semibold text-[var(--accent-primary)] uppercase tracking-wider flex items-center justify-center gap-1.5">
                     <Sparkles className="w-3 h-3" />
                     Examiner Question ({currentQuestion?.topic || sampleTurns[currentTurnIndex]?.topic})
                   </div>
-                  <p className="text-sm font-medium text-slate-100 leading-relaxed">
+                  <p className="font-editorial text-lg sm:text-xl font-normal text-[var(--text-primary)] leading-relaxed">
                     "{currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text}"
                   </p>
                 </div>
               )}
             </div>
 
-            {/* Live Student Response & Transcript Bar */}
+            {/* Live Student Response & Captions Bar */}
             {examinerState === "listening" && (
-              <div className="glass-panel p-5 rounded-2xl border border-emerald-500/30 space-y-3">
+              <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-focus)] space-y-3 shadow-md animate-in fade-in duration-200">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-[var(--accent-primary)]">
                     <Mic className="w-4 h-4 animate-pulse" />
                     Live Captions (Speaking in Your Own Words)
                   </div>
-                  <span className="text-[11px] text-slate-400">Speak clearly into microphone</span>
+                  <span className="text-[11px] text-[var(--text-muted)]">Speak clearly into microphone</span>
                 </div>
 
-                <div className="min-h-[50px] p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-sm text-slate-200 italic">
-                  {currentTranscript ? `"${currentTranscript}"` : "Waiting for your spoken answer..."}
+                <div className="min-h-[60px] p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] italic">
+                  {currentTranscript ? `"${currentTranscript}"` : "Listening for your spoken explanation..."}
                 </div>
 
                 <div className="flex justify-end gap-2 pt-1">
-                  <button
+                  <Button
                     onClick={handleSubmitAnswer}
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-500/25 transition-all cursor-pointer"
+                    variant="primary"
+                    size="md"
                   >
-                    Finish & Submit Answer
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
+                    <span>Finish & Submit Answer</span>
+                    <ArrowRight className="w-4 h-4 ml-1" />
+                  </Button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Right Sidebar: Turns History & Rubric Feedback */}
+          {/* Right Sidebar: Graded Turns History & Rubric Breakdown */}
           <div className="lg:col-span-4 space-y-4">
-            <div className="glass-panel p-5 rounded-2xl border border-slate-800 space-y-4">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Layers className="w-4 h-4 text-indigo-400" />
-                Viva Turn Progress
+            <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] space-y-4 shadow-xs">
+              <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+                <Layers className="w-4 h-4 text-[var(--accent-primary)]" />
+                Viva Voce Progress
               </h3>
 
               <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">
                 {turns.length === 0 ? (
-                  <div className="text-center py-10 text-xs text-slate-500">
-                    Graded answers and rubric breakdowns will appear here after each turn.
+                  <div className="text-center py-12 text-xs text-[var(--text-muted)] leading-relaxed">
+                    Graded answers and rubric breakdowns will appear here after each question turn.
                   </div>
                 ) : (
                   turns.map((t) => (
                     <div
                       key={t.id}
-                      className="p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 space-y-2.5"
+                      className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-2.5"
                     >
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-200">
+                        <span className="font-semibold text-[var(--text-primary)]">
                           Turn #{t.turn_number}: {t.topic}
                         </span>
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20">
+                        <span className="px-2 py-0.5 rounded-lg bg-[var(--bg-card)] text-[var(--text-primary)] font-bold border border-[var(--border-default)] text-xs">
                           {t.score_0_10}/10
                         </span>
                       </div>
 
-                      <p className="text-xs text-slate-400 italic line-clamp-2">
+                      <p className="text-xs text-[var(--text-secondary)] italic line-clamp-2">
                         "{t.transcript}"
                       </p>
 
-                      {/* Rubric scores */}
                       {t.rubric_breakdown && (
-                        <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-slate-950/60 p-2 rounded-lg text-slate-300">
-                          <div>Correctness: <span className="font-semibold text-indigo-300">{t.rubric_breakdown.correctness}</span></div>
-                          <div>Completeness: <span className="font-semibold text-indigo-300">{t.rubric_breakdown.completeness}</span></div>
-                          <div>Clarity: <span className="font-semibold text-indigo-300">{t.rubric_breakdown.clarity}</span></div>
-                          <div>Depth: <span className="font-semibold text-indigo-300">{t.rubric_breakdown.depth}</span></div>
+                        <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-[var(--bg-card)] p-2.5 rounded-lg text-[var(--text-secondary)] border border-[var(--border-default)]">
+                          <div>Correctness: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.correctness}</span></div>
+                          <div>Completeness: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.completeness}</span></div>
+                          <div>Clarity: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.clarity}</span></div>
+                          <div>Depth: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.depth}</span></div>
                         </div>
                       )}
 
-                      <div className="text-[11px] text-slate-400 border-t border-slate-800/80 pt-1.5">
-                        <span className="text-indigo-400 font-medium">Feedback: </span>
+                      <div className="text-[11px] text-[var(--text-secondary)] border-t border-[var(--border-default)] pt-2">
+                        <span className="font-semibold text-[var(--text-primary)]">Feedback: </span>
                         {t.feedback}
                       </div>
                     </div>

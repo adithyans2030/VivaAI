@@ -2,24 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { api, Subject, VivaSession, DocumentItem, Turn } from "@/lib/api";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Badge from "@/components/ui/Badge";
 import {
-  LayoutDashboard,
-  BookOpen,
-  UploadCloud,
-  FileText,
   Search,
   Filter,
   ShieldAlert,
-  CheckCircle2,
+  ShieldCheck,
   AlertTriangle,
   Download,
   Edit3,
-  Trash2,
-  Layers,
-  ChevronRight,
-  TrendingUp,
-  UserCheck,
+  UploadCloud,
+  FileText,
   Volume2,
+  Sparkles,
+  Clock,
+  ArrowUpRight,
+  BarChart2,
+  CheckCircle2,
+  Info,
+  Layers,
+  Save,
+  X,
 } from "lucide-react";
 
 export default function TeacherDashboardPage() {
@@ -29,16 +34,18 @@ export default function TeacherDashboardPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [activeTab, setActiveTab] = useState<"sessions" | "documents" | "analytics">("sessions");
 
-  // Filter state
+  // Filters
   const [filterFlag, setFilterFlag] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Override Modal
+  // Grade & Flag Override Modal
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [overrideScore, setOverrideScore] = useState<number>(8.5);
   const [overrideFlag, setOverrideFlag] = useState<string>("low");
   const [overrideReason, setOverrideReason] = useState<string>("");
   const [teacherNotes, setTeacherNotes] = useState<string>("");
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [notesSavedSuccess, setNotesSavedSuccess] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -56,16 +63,20 @@ export default function TeacherDashboardPage() {
       if (subjList.length > 0) {
         api.listDocuments(subjList[0].id).then(setDocuments).catch(() => {});
       }
+      if (sessList.length > 0) {
+        setSelectedSession(sessList[0]);
+        setTeacherNotes(sessList[0].teacher_notes || "");
+      }
     } catch {
-      // Provide demo teacher data for preview
+      // Demo teacher preview data adhering to realistic course evaluation
       const demoSubjects: Subject[] = [
         {
           id: "cs301",
           name: "Operating Systems & Concurrency",
           code: "CS301",
-          description: "Deadlocks, CPU Scheduling, Virtual Memory",
+          description: "Deadlocks, CPU Scheduling, Virtual Memory, Concurrency Primitives",
           teacher_id: "teacher-1",
-          document_count: 2,
+          document_count: 3,
         },
       ];
 
@@ -75,18 +86,19 @@ export default function TeacherDashboardPage() {
           student_id: "s-1",
           student_name: "Ada Lovelace",
           subject_id: "cs301",
-          subject_name: "Operating Systems",
+          subject_name: "Operating Systems & Concurrency",
           subject_code: "CS301",
           status: "completed",
           recording_consent: true,
-          total_score: 8.8,
+          total_score: 9.1,
           overall_authenticity_likelihood: "low",
-          overall_authenticity_confidence: 0.92,
+          overall_authenticity_confidence: 0.94,
           overall_authenticity_reasons: [
-            "Conversational pause rate matches spontaneous baseline",
-            "Synthesized analogies not found in textbook documents",
+            "Conversational pause rate matches natural spontaneous baseline (280ms mean pause)",
+            "Synthesized novel analogies for circular wait not found in course textbook",
+            "Prosodic variation indicates unrehearsed genuine cognitive synthesis",
           ],
-          teacher_notes: "Strong conceptual grasp of mutual exclusion and memory barriers.",
+          teacher_notes: "Strong conceptual grasp of mutual exclusion and memory barriers. Articulate responses under follow-up probing.",
           created_at: new Date().toISOString(),
           turns: [
             {
@@ -95,15 +107,15 @@ export default function TeacherDashboardPage() {
               question_type: "conceptual",
               topic: "Deadlocks",
               question_text: "What are Coffman's four conditions for deadlock?",
-              transcript: "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait. If any one is broken, deadlock cannot occur.",
-              score_0_10: 9.0,
+              transcript: "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait. If any single one of these conditions is prevented, a deadlock cannot form in the system.",
+              score_0_10: 9.4,
               authenticity_likelihood: "low",
-              authenticity_confidence: 0.94,
+              authenticity_confidence: 0.95,
               authenticity_reasons: [
-                "Natural prosodic pitch variability",
-                "Spontaneous hesitation at technical terms",
+                "Natural prosodic pitch variability and spontaneous cadence",
+                "Spontaneous hesitation at technical terms indicating live recall",
               ],
-              feedback: "Accurate enumeration and clear condition explanation.",
+              feedback: "Flawless enumeration with precise understanding of deadlock prevention.",
             },
             {
               id: "t-2",
@@ -111,12 +123,30 @@ export default function TeacherDashboardPage() {
               question_type: "probe",
               topic: "Banker's Algorithm",
               question_text: "In your own words, why is Banker's algorithm impractical in general-purpose operating systems?",
-              transcript: "Because it requires processes to state their maximum resource claim upfront, and in modern dynamic systems like Linux, processes don't know their future resource requirements ahead of time.",
-              score_0_10: 8.6,
+              transcript: "Because it requires processes to declare their maximum resource claim upfront. In modern operating systems like Linux, processes dynamically allocate heap memory and thread handles, so future resource requirements are fundamentally unpredictable.",
+              score_0_10: 8.8,
               authenticity_likelihood: "low",
-              authenticity_confidence: 0.9,
-              authenticity_reasons: ["Zero verbatim overlap with slides", "Natural sentence restarts"],
-              feedback: "Insightful practical consideration cited regarding Linux dynamics.",
+              authenticity_confidence: 0.92,
+              authenticity_reasons: [
+                "Zero verbatim overlap with uploaded lecture slides",
+                "Natural sentence restarts and self-correction",
+              ],
+              feedback: "Insightful practical consideration cited regarding Linux dynamic memory allocations.",
+            },
+            {
+              id: "t-3",
+              turn_number: 3,
+              question_type: "application",
+              topic: "Virtual Memory",
+              question_text: "How does the Translation Lookaside Buffer (TLB) mitigate address translation overhead?",
+              transcript: "A full page table lookup requires two memory accesses per virtual reference. The TLB acts as a high-speed associative hardware cache for virtual-to-physical translations, giving typical hit rates above 95% and near single-cycle translation.",
+              score_0_10: 9.0,
+              authenticity_likelihood: "low",
+              authenticity_confidence: 0.96,
+              authenticity_reasons: [
+                "Direct synthesis of concepts without script reading cadence",
+              ],
+              feedback: "Accurate physical memory breakdown and cache hierarchy explanation.",
             },
           ],
         },
@@ -125,25 +155,45 @@ export default function TeacherDashboardPage() {
           student_id: "s-2",
           student_name: "Robert Smith",
           subject_id: "cs301",
-          subject_name: "Operating Systems",
+          subject_name: "Operating Systems & Concurrency",
           subject_code: "CS301",
           status: "completed",
           recording_consent: true,
-          total_score: 6.2,
+          total_score: 6.4,
           overall_authenticity_likelihood: "medium",
-          overall_authenticity_confidence: 0.74,
+          overall_authenticity_confidence: 0.78,
           overall_authenticity_reasons: [
-            "High 4-gram verbatim overlap with textbook section 4.2",
+            "High 4-gram verbatim overlap (42%) with Silberschatz chapter 7 textbook excerpt",
             "Atypical rhythmic pacing with prolonged reading pauses at line breaks",
+            "Monotone vocal fundamental frequency across complex technical clauses",
           ],
+          teacher_notes: "Advisory review recommended. Student answered accurately but vocal cadences match scripted note reading.",
           created_at: new Date(Date.now() - 86400000).toISOString(),
-          turns: [],
+          turns: [
+            {
+              id: "t-b1",
+              turn_number: 1,
+              question_type: "conceptual",
+              topic: "Race Conditions",
+              question_text: "Define a critical section and describe how hardware test-and-set instructions provide mutual exclusion.",
+              transcript: "A critical section is a segment of code in which a process may be changing common variables, updating a table, or writing a file. The test-and-set instruction executes atomically to set the lock variable to true and return its prior value.",
+              score_0_10: 6.8,
+              authenticity_likelihood: "medium",
+              authenticity_confidence: 0.81,
+              authenticity_reasons: [
+                "Verbatim overlap with textbook definition section 5.2",
+                "Periodic breath pause matching document paragraphing",
+              ],
+              feedback: "Accurate textbook definition given, but lacked spontaneous reasoning when pressed.",
+            },
+          ],
         },
       ];
 
       setSubjects(demoSubjects);
       setSessions(demoSessions);
       setSelectedSession(demoSessions[0]);
+      setTeacherNotes(demoSessions[0].teacher_notes || "");
     }
   };
 
@@ -157,23 +207,22 @@ export default function TeacherDashboardPage() {
       const updatedDocs = await api.listDocuments(subjects[0].id);
       setDocuments(updatedDocs);
     } catch {
-      // Mock add
       setDocuments((prev) => [
         ...prev,
         {
           id: `doc-${Date.now()}`,
           subject_id: subjects[0].id,
           filename: file.name,
-          file_type: file.name.split(".").pop() || "txt",
+          file_type: file.name.split(".").pop() || "pdf",
           file_size_bytes: file.size,
-          chunk_count: 14,
+          chunk_count: 18,
           ingestion_status: "completed",
         },
       ]);
     }
   };
 
-  // Submit Override
+  // Override Submission
   const handleApplyOverride = async () => {
     if (!selectedSession) return;
     try {
@@ -183,16 +232,14 @@ export default function TeacherDashboardPage() {
         reason: overrideReason || "Teacher manual review",
       });
     } catch {
-      // Update local state
-      setSelectedSession((prev) =>
-        prev
-          ? {
-              ...prev,
-              total_score: overrideScore,
-              overall_authenticity_likelihood: overrideFlag as any,
-            }
-          : null
-      );
+      // Local state update
+      const updated: VivaSession = {
+        ...selectedSession,
+        total_score: overrideScore,
+        overall_authenticity_likelihood: overrideFlag as any,
+      };
+      setSelectedSession(updated);
+      setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     }
     setIsOverrideOpen(false);
   };
@@ -200,49 +247,76 @@ export default function TeacherDashboardPage() {
   // Save Teacher Notes
   const handleSaveNotes = async () => {
     if (!selectedSession) return;
+    setIsSavingNotes(true);
     try {
       await api.updateTeacherNotes(selectedSession.id, teacherNotes);
+      setNotesSavedSuccess(true);
+      setTimeout(() => setNotesSavedSuccess(false), 2500);
     } catch {
       setSelectedSession((prev) => (prev ? { ...prev, teacher_notes: teacherNotes } : null));
+      setNotesSavedSuccess(true);
+      setTimeout(() => setNotesSavedSuccess(false), 2500);
+    } finally {
+      setIsSavingNotes(false);
     }
   };
 
+  // Filtered Sessions
+  const filteredSessions = sessions.filter((s) => {
+    const matchesQuery =
+      s.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (s.subject_name && s.subject_name.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    const matchesFlag =
+      filterFlag === "all" || s.overall_authenticity_likelihood === filterFlag;
+
+    return matchesQuery && matchesFlag;
+  });
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
-      {/* Dashboard Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 md:py-12 space-y-8">
+      {/* Top Header */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b border-[var(--border-default)]">
         <div>
-          <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            Teacher Portal
-          </span>
-          <h1 className="text-3xl font-bold text-white tracking-tight mt-1">Examiner Assessment Dashboard</h1>
-          <p className="text-sm text-slate-400">
-            Review oral examination recordings, rubric evaluations, and advisory authenticity findings.
+          <Badge variant="eyebrow" className="mb-2">
+            Teacher Workspace • Oral Records & Review
+          </Badge>
+          <h1 className="font-editorial text-3xl sm:text-4xl font-normal text-[var(--text-primary)] tracking-tight">
+            Examiner Review & Oversight
+          </h1>
+          <p className="text-sm text-[var(--text-secondary)] mt-1.5 max-w-2xl leading-relaxed">
+            Review live spoken transcripts, rubric grading evidence, and advisory 6-signal authenticity metrics. All assessments are strictly advisory to support teacher judgment.
           </p>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-800">
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] self-start lg:self-auto">
           <button
             onClick={() => setActiveTab("sessions")}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
-              activeTab === "sessions" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === "sessions"
+                ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)] shadow-xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]"
             }`}
           >
             Viva Sessions ({sessions.length})
           </button>
           <button
             onClick={() => setActiveTab("documents")}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
-              activeTab === "documents" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === "documents"
+                ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)] shadow-xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]"
             }`}
           >
             Course Material (RAG)
           </button>
           <button
             onClick={() => setActiveTab("analytics")}
-            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
-              activeTab === "analytics" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-white"
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+              activeTab === "analytics"
+                ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)] shadow-xs"
+                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)]"
             }`}
           >
             Class Analytics
@@ -253,32 +327,33 @@ export default function TeacherDashboardPage() {
       {/* SESSIONS TAB */}
       {activeTab === "sessions" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left: Sessions List & Filters */}
+          {/* Left Column: Filter & Session Roster */}
           <div className="lg:col-span-5 space-y-4">
-            <div className="glass-panel p-4 rounded-2xl border border-slate-800 space-y-3">
-              <div className="flex items-center gap-2">
-                <Search className="w-4 h-4 text-slate-400" />
+            {/* Search & Filter Bar */}
+            <div className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-3">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
                 <input
                   type="text"
-                  placeholder="Search candidate by name..."
+                  placeholder="Search candidate or subject..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-transparent text-sm text-white placeholder-slate-500 focus:outline-none"
+                  className="w-full pl-10 pr-4 py-2.5 text-xs rounded-xl border border-[var(--border-default)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-all"
                 />
               </div>
 
-              {/* Authenticity Filter */}
-              <div className="flex items-center gap-1.5 pt-2 border-t border-slate-800">
-                <Filter className="w-3.5 h-3.5 text-slate-500" />
-                <span className="text-[11px] text-slate-400 font-medium">Authenticity:</span>
+              {/* Authenticity Filter Pills */}
+              <div className="flex items-center gap-1.5 pt-2 border-t border-[var(--border-default)]">
+                <Filter className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                <span className="text-[11px] text-[var(--text-secondary)] font-medium">Flag:</span>
                 {["all", "low", "medium", "high"].map((level) => (
                   <button
                     key={level}
                     onClick={() => setFilterFlag(level)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-semibold capitalize transition-colors ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold capitalize transition-all cursor-pointer ${
                       filterFlag === level
-                        ? "bg-slate-700 text-white"
-                        : "text-slate-400 hover:text-slate-200"
+                        ? "bg-[var(--accent-primary)] text-[var(--accent-contrast)]"
+                        : "text-[var(--text-secondary)] hover:bg-[var(--bg-card-subtle)]"
                     }`}
                   >
                     {level}
@@ -287,70 +362,114 @@ export default function TeacherDashboardPage() {
               </div>
             </div>
 
-            {/* Candidate Session Cards */}
-            <div className="space-y-3">
-              {sessions.map((s) => (
-                <div
-                  key={s.id}
-                  onClick={() => {
-                    setSelectedSession(s);
-                    setTeacherNotes(s.teacher_notes || "");
-                  }}
-                  className={`p-4 rounded-2xl border transition-all cursor-pointer ${
-                    selectedSession?.id === s.id
-                      ? "bg-indigo-950/40 border-indigo-500 shadow-md"
-                      : "glass-panel border-slate-800 hover:border-slate-700 hover:bg-slate-900/60"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="text-sm font-semibold text-white">{s.student_name || "Candidate"}</h4>
-                      <div className="text-xs text-slate-400">{s.subject_name || "Operating Systems"}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-bold text-emerald-400">
-                        {s.total_score ? `${s.total_score}/10` : "Pending"}
-                      </div>
-                      <span
-                        className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                          s.overall_authenticity_likelihood === "low"
-                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                            : s.overall_authenticity_likelihood === "medium"
-                            ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                            : "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                        }`}
-                      >
-                        {s.overall_authenticity_likelihood} Flag
-                      </span>
-                    </div>
-                  </div>
+            {/* Candidate Session List */}
+            <div className="space-y-2.5">
+              {filteredSessions.length === 0 ? (
+                <div className="p-8 text-center rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] text-xs text-[var(--text-muted)]">
+                  No sessions match current search and flag filters.
                 </div>
-              ))}
+              ) : (
+                filteredSessions.map((s) => {
+                  const isSelected = selectedSession?.id === s.id;
+                  const isLowRisk = s.overall_authenticity_likelihood === "low";
+                  const isMedRisk = s.overall_authenticity_likelihood === "medium";
+
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => {
+                        setSelectedSession(s);
+                        setTeacherNotes(s.teacher_notes || "");
+                      }}
+                      className={`p-4 rounded-2xl border transition-all cursor-pointer ${
+                        isSelected
+                          ? "bg-[var(--bg-card)] border-[var(--border-focus)] shadow-sm ring-1 ring-[var(--border-focus)]"
+                          : "bg-[var(--bg-card)] border-[var(--border-default)] hover:border-[var(--border-focus)] hover:bg-[var(--bg-card-subtle)]"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-sm font-semibold text-[var(--text-primary)]">
+                              {s.student_name}
+                            </h4>
+                            {isSelected && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" />
+                            )}
+                          </div>
+                          <div className="text-xs text-[var(--text-secondary)] mt-0.5">
+                            {s.subject_name || "Course Viva"}
+                          </div>
+                          <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-1.5 mt-2">
+                            <Clock className="w-3 h-3" />
+                            {new Date(s.created_at).toLocaleDateString(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </div>
+                        </div>
+
+                        <div className="text-right flex flex-col items-end">
+                          <div className="font-editorial text-lg font-normal text-[var(--text-primary)]">
+                            {s.total_score ? `${s.total_score}/10` : "Pending"}
+                          </div>
+                          <span
+                            className={`mt-1.5 px-2.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider ${
+                              isLowRisk
+                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20"
+                                : isMedRisk
+                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                : "bg-[var(--error-bg)] text-[var(--error-text)] border border-[var(--error-border)]"
+                            }`}
+                          >
+                            {s.overall_authenticity_likelihood} Flag
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
-          {/* Right: Detailed Session Inspector */}
-          {selectedSession && (
+          {/* Right Column: Detailed Candidate Inspector */}
+          {selectedSession ? (
             <div className="lg:col-span-7 space-y-6">
-              {/* Top Overview Card */}
-              <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-                <div className="flex items-center justify-between">
+              {/* Candidate Overview Card */}
+              <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-bold text-white">{selectedSession.student_name}</h2>
-                    <p className="text-xs text-slate-400">{selectedSession.subject_name} • Oral Viva Voce</p>
+                    <Badge variant="eyebrow" className="mb-1">
+                      Candidate Examination Record
+                    </Badge>
+                    <h2 className="font-editorial text-2xl font-normal text-[var(--text-primary)]">
+                      {selectedSession.student_name}
+                    </h2>
+                    <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                      {selectedSession.subject_name} • Oral Viva Voce
+                    </p>
                   </div>
+
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setIsOverrideOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setOverrideScore(selectedSession.total_score || 8.0);
+                        setOverrideFlag(selectedSession.overall_authenticity_likelihood || "low");
+                        setIsOverrideOpen(true);
+                      }}
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      Override Grade / Flag
-                    </button>
+                      Override Grade
+                    </Button>
                     <a
                       href={api.getExportCsvUrl(selectedSession.id)}
                       download
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-[var(--accent-primary)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-all shadow-xs"
                     >
                       <Download className="w-3.5 h-3.5" />
                       Export CSV
@@ -358,65 +477,98 @@ export default function TeacherDashboardPage() {
                   </div>
                 </div>
 
-                {/* Score & Authenticity Highlights */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-                    <div className="text-[11px] text-slate-400 uppercase font-semibold">Overall Rubric Score</div>
-                    <div className="text-2xl font-black text-indigo-400 mt-1">
-                      {selectedSession.total_score}/10
+                {/* Score & Authenticity Metrics Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
+                    <div className="text-[11px] text-[var(--text-secondary)] uppercase font-semibold tracking-wider">
+                      Rubric Examination Score
+                    </div>
+                    <div className="font-editorial text-3xl font-normal text-[var(--text-primary)] mt-1">
+                      {selectedSession.total_score}{" "}
+                      <span className="text-sm font-sans text-[var(--text-muted)]">/ 10</span>
+                    </div>
+                    <div className="text-[11px] text-[var(--text-secondary)] mt-1 flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      Grounded on 4 rubric dimensions
                     </div>
                   </div>
 
-                  <div className="p-3.5 rounded-xl bg-slate-900 border border-slate-800">
-                    <div className="text-[11px] text-slate-400 uppercase font-semibold">Advisory Authenticity</div>
+                  <div className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
+                    <div className="text-[11px] text-[var(--text-secondary)] uppercase font-semibold tracking-wider">
+                      Advisory Authenticity Likelihood
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <span className="text-lg font-bold capitalize text-emerald-400">
-                        {selectedSession.overall_authenticity_likelihood} Likelihood of Reading
+                      <span className="font-editorial text-2xl font-normal capitalize text-[var(--text-primary)]">
+                        {selectedSession.overall_authenticity_likelihood} Likelihood
                       </span>
+                    </div>
+                    <div className="text-[11px] text-[var(--text-muted)] mt-1">
+                      Confidence: {Math.round((selectedSession.overall_authenticity_confidence || 0.9) * 100)}%
                     </div>
                   </div>
                 </div>
 
-                {/* Authenticity Explainable Reasons (Section 7.4) */}
+                {/* 6-Signal Advisory Authenticity Evidence */}
                 {selectedSession.overall_authenticity_reasons && (
-                  <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2">
-                    <div className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                      <ShieldAlert className="w-4 h-4 text-amber-400" />
-                      Advisory Acoustic & Textual Evidence:
+                  <div className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-2.5">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-[var(--text-primary)]">
+                      <ShieldAlert className="w-4 h-4 text-[var(--accent-primary)]" />
+                      Advisory Acoustic & Textual Findings:
                     </div>
-                    <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside">
+                    <ul className="text-xs text-[var(--text-secondary)] space-y-1.5 list-disc list-inside">
                       {selectedSession.overall_authenticity_reasons.map((r, i) => (
-                        <li key={i}>{r}</li>
+                        <li key={i} className="leading-relaxed">{r}</li>
                       ))}
                     </ul>
+                    <div className="pt-2 border-t border-[var(--border-default)] flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                      <Info className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        Advisory only. Designed to guide instructor conversation, never an automated penalty or cheating verdict.
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* Turns and Audio Review */}
-              <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-4">
-                <h3 className="text-base font-bold text-white">Question Turns & Spoken Transcripts</h3>
+              {/* Spoken Turns & Transcripts */}
+              <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-editorial text-lg font-normal text-[var(--text-primary)]">
+                    Question Turns & Spoken Transcripts
+                  </h3>
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {selectedSession.turns?.length || 0} turns recorded
+                  </span>
+                </div>
 
                 <div className="space-y-4">
                   {selectedSession.turns?.map((turn) => (
-                    <div key={turn.id} className="p-4 rounded-xl bg-slate-900/90 border border-slate-800 space-y-3">
+                    <div
+                      key={turn.id}
+                      className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-3"
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-indigo-300">
-                          Question #{turn.turn_number}: {turn.topic} ({turn.question_type})
+                        <span className="text-xs font-semibold text-[var(--text-secondary)] flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" />
+                          Turn #{turn.turn_number}: {turn.topic} ({turn.question_type})
                         </span>
-                        <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-[var(--bg-card)] border border-[var(--border-default)] text-[var(--text-primary)]">
                           {turn.score_0_10}/10
                         </span>
                       </div>
 
-                      <p className="text-xs font-medium text-slate-200">"{turn.question_text}"</p>
+                      <p className="text-xs font-medium text-[var(--text-primary)] leading-relaxed">
+                        "{turn.question_text}"
+                      </p>
 
-                      <div className="p-3 rounded-lg bg-slate-950/80 border border-slate-800 text-xs text-slate-300 italic">
-                        <span className="text-[10px] text-slate-500 uppercase not-italic block mb-1">Transcript:</span>
+                      <div className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-default)] text-xs text-[var(--text-secondary)] italic leading-relaxed">
+                        <span className="text-[10px] text-[var(--text-muted)] uppercase not-italic font-semibold tracking-wider block mb-1">
+                          Student's Spoken Answer:
+                        </span>
                         "{turn.transcript}"
                       </div>
 
-                      <div className="text-[11px] text-slate-400 flex items-center justify-between border-t border-slate-800/80 pt-2">
+                      <div className="text-[11px] text-[var(--text-secondary)] border-t border-[var(--border-default)] pt-2 flex items-center justify-between">
                         <span>Feedback: {turn.feedback}</span>
                       </div>
                     </div>
@@ -425,66 +577,93 @@ export default function TeacherDashboardPage() {
               </div>
 
               {/* Teacher Notes & Audit Trail */}
-              <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-3">
-                <h3 className="text-sm font-bold text-white">Teacher Evaluation Notes</h3>
+              <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-editorial text-base font-normal text-[var(--text-primary)]">
+                    Teacher Evaluation Notes
+                  </h3>
+                  {notesSavedSuccess && (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium animate-in fade-in">
+                      ✓ Notes saved
+                    </span>
+                  )}
+                </div>
+
                 <textarea
                   rows={3}
                   value={teacherNotes}
                   onChange={(e) => setTeacherNotes(e.target.value)}
-                  placeholder="Add advisory notes, student recommendations, or oral viva observations..."
-                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  placeholder="Record confidential teacher observations, student praise, or recommended follow-up..."
+                  className="w-full p-3.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)] transition-all"
                 />
+
                 <div className="flex justify-end">
-                  <button
+                  <Button
+                    size="sm"
                     onClick={handleSaveNotes}
-                    className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition-colors"
+                    isLoading={isSavingNotes}
                   >
+                    <Save className="w-3.5 h-3.5" />
                     Save Notes
-                  </button>
+                  </Button>
                 </div>
               </div>
+            </div>
+          ) : (
+            <div className="lg:col-span-7 p-12 text-center rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] text-sm text-[var(--text-muted)]">
+              Select a candidate session from the roster to view their oral examination record.
             </div>
           )}
         </div>
       )}
 
-      {/* DOCUMENTS TAB (RAG INGESTION) */}
+      {/* DOCUMENTS TAB (COURSE MATERIAL / RAG) */}
       {activeTab === "documents" && (
-        <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-6">
-          <div className="flex items-center justify-between">
+        <div className="p-6 sm:p-8 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h2 className="text-lg font-bold text-white">Course Materials & Ingestion Pipeline</h2>
-              <p className="text-xs text-slate-400">
-                Uploaded PDF, DOCX, TXT, and Markdown files are chunked, embedded, and stored for grounded questioning.
+              <Badge variant="eyebrow" className="mb-1">
+                Grounded Questioning Pipeline
+              </Badge>
+              <h2 className="font-editorial text-2xl font-normal text-[var(--text-primary)]">
+                Course Materials & Textbooks
+              </h2>
+              <p className="text-xs text-[var(--text-secondary)] mt-1 max-w-xl">
+                Uploaded PDFs, lecture slides, and notes are chunked and embedded via ChromaDB. The voice examiner formulates grounded oral questions strictly from these documents.
               </p>
             </div>
 
-            <label className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-500/25 cursor-pointer transition-all">
+            <label className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[var(--accent-primary)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] text-xs font-semibold cursor-pointer transition-all shadow-xs self-start sm:self-auto">
               <UploadCloud className="w-4 h-4" />
-              Upload Subject Material
+              Upload Course Material
               <input type="file" onChange={handleUpload} className="hidden" accept=".pdf,.docx,.txt,.md" />
             </label>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 pt-2">
             {documents.length === 0 ? (
-              <div className="text-center py-12 text-slate-500 text-xs">
+              <div className="text-center py-12 text-[var(--text-muted)] text-xs border border-dashed border-[var(--border-default)] rounded-xl">
                 No course material uploaded yet. Upload lecture notes, textbook chapters, or syllabi.
               </div>
             ) : (
               documents.map((doc) => (
-                <div key={doc.id} className="p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-indigo-400" />
+                <div
+                  key={doc.id}
+                  className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-9 h-9 rounded-lg bg-[var(--bg-card)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)]">
+                      <FileText className="w-4 h-4" />
+                    </div>
                     <div>
-                      <div className="text-sm font-semibold text-slate-200">{doc.filename}</div>
-                      <div className="text-[11px] text-slate-400">
+                      <div className="text-sm font-semibold text-[var(--text-primary)]">{doc.filename}</div>
+                      <div className="text-[11px] text-[var(--text-muted)]">
                         {doc.chunk_count} semantic chunks • {(doc.file_size_bytes / 1024).toFixed(1)} KB
                       </div>
                     </div>
                   </div>
 
-                  <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 capitalize">
+                  <span className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 capitalize">
                     {doc.ingestion_status}
                   </span>
                 </div>
@@ -496,81 +675,135 @@ export default function TeacherDashboardPage() {
 
       {/* CLASS ANALYTICS TAB */}
       {activeTab === "analytics" && (
-        <div className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-6">
-          <h2 className="text-lg font-bold text-white">Class-Level Performance & Topic Mastery</h2>
+        <div className="p-6 sm:p-8 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-6">
+          <div>
+            <Badge variant="eyebrow" className="mb-1">
+              Cohort Intelligence
+            </Badge>
+            <h2 className="font-editorial text-2xl font-normal text-[var(--text-primary)]">
+              Class Performance & Topic Mastery
+            </h2>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Aggregated insights across all completed candidate examinations in this course.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-              <div className="text-xs text-slate-400">Class Average Score</div>
-              <div className="text-3xl font-extrabold text-indigo-400 mt-2">7.8 / 10</div>
+            <div className="p-5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
+              <div className="text-xs text-[var(--text-secondary)] font-medium">Class Average Score</div>
+              <div className="font-editorial text-3xl font-normal text-[var(--text-primary)] mt-2">
+                8.2 <span className="text-sm font-sans text-[var(--text-muted)]">/ 10</span>
+              </div>
+              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-2 flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Strong cohort baseline
+              </div>
             </div>
-            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-              <div className="text-xs text-slate-400">Total Completed Vivas</div>
-              <div className="text-3xl font-extrabold text-emerald-400 mt-2">{sessions.length}</div>
+
+            <div className="p-5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
+              <div className="text-xs text-[var(--text-secondary)] font-medium">Total Completed Vivas</div>
+              <div className="font-editorial text-3xl font-normal text-[var(--text-primary)] mt-2">
+                {sessions.length}
+              </div>
+              <div className="text-[11px] text-[var(--text-muted)] mt-2">
+                Across 2 active sections
+              </div>
             </div>
-            <div className="p-4 rounded-xl bg-slate-900 border border-slate-800">
-              <div className="text-xs text-slate-400">Advisory Authenticity Flags</div>
-              <div className="text-3xl font-extrabold text-amber-400 mt-2">1 Review Recommended</div>
+
+            <div className="p-5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
+              <div className="text-xs text-[var(--text-secondary)] font-medium">Advisory Authenticity Flags</div>
+              <div className="font-editorial text-3xl font-normal text-[var(--text-primary)] mt-2">
+                1 <span className="text-sm font-sans text-[var(--text-muted)]">candidate</span>
+              </div>
+              <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Follow-up conversation suggested
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Override Grade / Flag Modal */}
+      {/* Grade & Flag Override Modal */}
       {isOverrideOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-md glass-panel bg-slate-900 rounded-2xl p-6 border border-slate-700 shadow-2xl space-y-4">
-            <h3 className="text-base font-bold text-white">Override Examination Grade</h3>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Revised Score (0 - 10)</label>
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="10"
-                value={overrideScore}
-                onChange={(e) => setOverrideScore(parseFloat(e.target.value))}
-                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Revised Authenticity Flag</label>
-              <select
-                value={overrideFlag}
-                onChange={(e) => setOverrideFlag(e.target.value)}
-                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white"
-              >
-                <option value="low">Low (Spontaneous Answer)</option>
-                <option value="medium">Medium (Potential Script Reading)</option>
-                <option value="high">High (Extensive Verbatim Reading)</option>
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Audit Justification Reason</label>
-              <textarea
-                rows={2}
-                value={overrideReason}
-                onChange={(e) => setOverrideReason(e.target.value)}
-                placeholder="Required for administrative audit log..."
-                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-700 text-sm text-white"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <Badge variant="eyebrow" className="mb-1">
+                  Manual Override Audit
+                </Badge>
+                <h3 className="font-editorial text-xl font-normal text-[var(--text-primary)]">
+                  Override Examination Grade
+                </h3>
+              </div>
               <button
                 onClick={() => setIsOverrideOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+                className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card-subtle)] transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5 text-left">
+                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                  Revised Score (0 - 10)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="10"
+                  value={overrideScore}
+                  onChange={(e) => setOverrideScore(parseFloat(e.target.value))}
+                  className="w-full px-4 py-2.5 text-xs rounded-xl border border-[var(--border-default)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)]"
+                />
+              </div>
+
+              <div className="space-y-1.5 text-left">
+                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                  Revised Advisory Authenticity Flag
+                </label>
+                <select
+                  value={overrideFlag}
+                  onChange={(e) => setOverrideFlag(e.target.value)}
+                  className="w-full px-4 py-2.5 text-xs rounded-xl border border-[var(--border-default)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)]"
+                >
+                  <option value="low">Low Likelihood (Spontaneous Answer)</option>
+                  <option value="medium">Medium Likelihood (Potential Reading)</option>
+                  <option value="high">High Likelihood (Script Reading)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5 text-left">
+                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                  Administrative Justification Reason
+                </label>
+                <textarea
+                  rows={2}
+                  value={overrideReason}
+                  onChange={(e) => setOverrideReason(e.target.value)}
+                  placeholder="Required for administrative audit log..."
+                  className="w-full p-3 text-xs rounded-xl border border-[var(--border-default)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)]"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2.5 pt-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsOverrideOpen(false)}
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
+                size="sm"
                 onClick={handleApplyOverride}
-                className="px-5 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-md"
               >
                 Confirm & Log Override
-              </button>
+              </Button>
             </div>
           </div>
         </div>

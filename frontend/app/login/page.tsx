@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { Sparkles, GraduationCap, LayoutDashboard, Shield, AlertCircle, ArrowRight, Loader2 } from "lucide-react";
+import BrandLogo from "@/components/BrandLogo";
+import ThemeToggle from "@/components/ThemeToggle";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import { Activity, ArrowRight, ShieldCheck } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -12,12 +16,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async (loginEmail?: string, loginPass?: string) => {
-    const targetEmail = loginEmail || email;
-    const targetPass = loginPass || password;
+  const handleLogin = async (e?: React.FormEvent, customEmail?: string, customPass?: string) => {
+    if (e) e.preventDefault();
+    const targetEmail = customEmail || email;
+    const targetPass = customPass || password;
 
     if (!targetEmail || !targetPass) {
-      setError("Please provide both email and password");
+      setError("Please provide your school email and password.");
       return;
     }
 
@@ -32,126 +37,173 @@ export default function LoginPage() {
         router.push("/student");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to log in");
+      setError(err.message || "HTTP 502 Bad Gateway");
     } finally {
       setLoading(false);
     }
   };
 
-  const loginAsDemo = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    handleLogin(demoEmail, demoPass);
+  const handleDemoFill = (role: "teacher" | "student") => {
+    if (role === "teacher") {
+      setEmail("teacher@vivaiq.edu");
+      setPassword("TeacherPass123!");
+      handleLogin(undefined, "teacher@vivaiq.edu", "TeacherPass123!");
+    } else {
+      setEmail("alex@student.edu");
+      setPassword("StudentPass123!");
+      handleLogin(undefined, "alex@student.edu", "StudentPass123!");
+    }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-radial from-slate-900 via-slate-950 to-black">
-      <div className="w-full max-w-md space-y-6">
-        {/* Brand */}
-        <div className="text-center space-y-2">
-          <div className="inline-flex w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-400 items-center justify-center shadow-xl shadow-indigo-500/25 mb-1">
-            <Sparkles className="w-6 h-6 text-white" />
+    <div className="min-h-screen flex flex-col lg:flex-row w-full bg-[var(--bg-surface)] text-[var(--text-primary)]">
+      {/* ------------------------------------------------------------- */}
+      {/* Left Pane: Editorial Brand & Manifesto Screen                 */}
+      {/* ------------------------------------------------------------- */}
+      <div className="w-full lg:w-1/2 min-h-[460px] lg:min-h-screen bg-[var(--bg-hero)] p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden">
+        {/* Brand Header */}
+        <div className="z-10">
+          <BrandLogo size="md" />
+        </div>
+
+        {/* Hero Editorial Copy */}
+        <div className="my-auto py-12 z-10 max-w-lg">
+          <div className="flex items-center gap-2.5">
+            <span className="w-6 h-[1.5px] bg-[var(--text-secondary)] opacity-80" />
+            <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
+              For the moments that matter
+            </span>
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white">
-            Viva<span className="text-indigo-400">IQ</span>
+
+          <h1 className="font-editorial text-4xl sm:text-5xl lg:text-6xl text-[var(--text-primary)] font-normal tracking-tight leading-[1.08] mt-6">
+            Make room<br />
+            for what they<br />
+            <em className="italic font-normal">understand.</em>
           </h1>
-          <p className="text-xs text-slate-400 max-w-xs mx-auto">
-            AI-Powered Oral Viva Voce Examiner & Explainable Authenticity Assessor
+
+          <p className="text-sm sm:text-base text-[var(--text-secondary)] mt-6 leading-relaxed max-w-sm">
+            A thoughtful viva experience for students, with a clear and reviewable record for teachers.
           </p>
         </div>
 
-        {/* Demo Fast-Login Cards */}
-        <div className="glass-panel p-4 rounded-2xl border border-slate-800/80 space-y-2.5">
-          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">
-            ⚡ Quick Demo Accounts (One-Click)
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => loginAsDemo("student@vivaiq.edu", "student123")}
-              disabled={loading}
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-800/40 hover:bg-indigo-600/20 border border-slate-700/60 hover:border-indigo-500/40 text-left transition-all group"
-            >
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform">
-                <GraduationCap className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-slate-200">Ada Lovelace</div>
-                <div className="text-[10px] text-indigo-400 font-medium">Student Role</div>
-              </div>
-            </button>
+        {/* Ambient Concentric Wave Motif */}
+        <div className="ambient-rings" aria-hidden="true" />
 
-            <button
-              onClick={() => loginAsDemo("teacher@vivaiq.edu", "teacher123")}
-              disabled={loading}
-              className="flex items-center gap-2.5 p-3 rounded-xl bg-slate-800/40 hover:bg-emerald-600/20 border border-slate-700/60 hover:border-emerald-500/40 text-left transition-all group"
-            >
-              <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition-transform">
-                <LayoutDashboard className="w-4 h-4" />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-slate-200">Prof. Turing</div>
-                <div className="text-[10px] text-emerald-400 font-medium">Teacher Role</div>
-              </div>
-            </button>
+        {/* Footer Badges */}
+        <div className="flex flex-wrap items-center gap-6 pt-6 z-10 text-xs text-[var(--text-secondary)]">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="w-4 h-4 text-[var(--text-secondary)]" />
+            <span>Teacher-reviewed, always</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-[var(--text-secondary)]" />
+            <span>Service status operational</span>
           </div>
         </div>
+      </div>
 
-        {/* Credentials Form */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleLogin();
-          }}
-          className="glass-panel p-6 rounded-2xl border border-slate-800 space-y-4 shadow-2xl"
-        >
-          {error && (
-            <div className="flex items-center gap-2 p-3 text-xs text-rose-300 bg-rose-500/10 rounded-xl border border-rose-500/20">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
+      {/* ------------------------------------------------------------- */}
+      {/* Right Pane: Authentication Form Area                          */}
+      {/* ------------------------------------------------------------- */}
+      <div className="w-full lg:w-1/2 min-h-screen bg-[var(--bg-surface)] p-6 sm:p-10 lg:p-16 flex flex-col justify-between relative">
+        {/* Top bar with Theme Switcher */}
+        <div className="w-full flex justify-end">
+          <ThemeToggle />
+        </div>
 
+        {/* Centered Form */}
+        <div className="w-full max-w-[390px] mx-auto my-auto py-8 space-y-6">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-300">Email Address</label>
-            <input
+            <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)] block">
+              Welcome back
+            </span>
+            <h2 className="font-editorial text-3xl sm:text-4xl text-[var(--text-primary)] font-normal tracking-tight">
+              Sign in to VivaIQ
+            </h2>
+            <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-1">
+              Use your school account to continue to your workspace.
+            </p>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleLogin} className="space-y-4 pt-1">
+            <Input
+              label="Email address"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. student@vivaiq.edu"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+              placeholder="you@school.edu"
+              required
             />
-          </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-300">Password</label>
-            <input
+            <Input
+              label="Password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700/80 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 transition-colors"
+              placeholder="Enter your password"
+              required
             />
+
+            {error && (
+              <div className="p-3.5 rounded-xl bg-[var(--error-bg)] border border-[var(--error-border)] text-xs font-medium text-[var(--error-text)] animate-in fade-in duration-200">
+                {error}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              isLoading={loading}
+              className="w-full justify-between px-6"
+            >
+              <span>Continue</span>
+              <ArrowRight className="w-4 h-4 ml-auto" />
+            </Button>
+          </form>
+
+          {/* Demo Autofill Buttons */}
+          <div className="space-y-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              onClick={() => handleDemoFill("teacher")}
+              className="w-full text-xs font-semibold"
+            >
+              Fill teacher demo account
+            </Button>
+
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => handleDemoFill("student")}
+              className="w-full text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              Fill student demo account (Alex)
+            </Button>
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full mt-2 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-semibold text-xs text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/25 transition-all cursor-pointer disabled:opacity-50"
-          >
-            {loading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <>
-                <span>Sign In to VivaIQ</span>
-                <ArrowRight className="w-4 h-4" />
-              </>
-            )}
-          </button>
-        </form>
+          {/* Divider */}
+          <div className="w-full h-[1px] bg-[var(--border-default)] pt-0 my-4" />
 
-        <p className="text-center text-xs text-slate-500">
-          Academic credentials secured with bcrypt and tokenized JWT.
-        </p>
+          {/* Advisory Guardrail Footnote */}
+          <div className="flex items-start gap-2.5 text-left pt-1">
+            <ShieldCheck className="w-4 h-4 text-[var(--text-secondary)] shrink-0 mt-0.5" />
+            <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+              Your assessment supports a conversation. It is advisory only, never a cheating detector or a final judgement.
+            </p>
+          </div>
+        </div>
+
+        {/* Footer Administrator Link */}
+        <div className="text-center pb-2">
+          <p className="text-xs text-[var(--text-muted)]">
+            Need access? Ask your school administrator.
+          </p>
+        </div>
       </div>
     </div>
   );

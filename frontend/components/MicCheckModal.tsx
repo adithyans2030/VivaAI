@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Mic, ShieldCheck, Check, AlertCircle, Volume2 } from "lucide-react";
+import Button from "@/components/ui/Button";
 
 interface MicCheckModalProps {
   isOpen: boolean;
@@ -71,7 +72,7 @@ export default function MicCheckModal({
 
       updateLevel();
     } catch (err: any) {
-      setErrorMsg("Microphone access was denied. Please allow microphone permissions to take this viva.");
+      setErrorMsg("Microphone access was denied. Please allow microphone permissions in your browser.");
       setMicGranted(false);
     }
   };
@@ -92,67 +93,71 @@ export default function MicCheckModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full max-w-lg glass-panel bg-slate-900/90 rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-lg bg-[var(--bg-card)] rounded-3xl p-6 sm:p-8 border border-[var(--border-default)] shadow-2xl space-y-6 text-[var(--text-primary)] transition-colors">
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+        <div className="flex items-center gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)]">
             <Mic className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-white">Audio & System Readiness</h2>
-            <p className="text-xs text-slate-400">Oral examination for: <span className="text-indigo-300 font-semibold">{subjectName}</span></p>
+            <h2 className="font-editorial text-2xl font-normal text-[var(--text-primary)] tracking-tight">
+              Microphone & Readiness Check
+            </h2>
+            <p className="text-xs text-[var(--text-secondary)]">
+              Oral viva voce for: <span className="font-semibold text-[var(--text-primary)]">{subjectName}</span>
+            </p>
           </div>
         </div>
 
         {/* Mic Level Meter */}
-        <div className="bg-slate-950/60 rounded-xl p-4 border border-slate-800 space-y-3">
+        <div className="bg-[var(--bg-card-subtle)] rounded-2xl p-4 border border-[var(--border-default)] space-y-3">
           <div className="flex items-center justify-between text-xs">
-            <span className="text-slate-300 font-medium flex items-center gap-1.5">
-              <Volume2 className="w-4 h-4 text-emerald-400" />
+            <span className="text-[var(--text-primary)] font-medium flex items-center gap-1.5">
+              <Volume2 className="w-4 h-4 text-[var(--accent-primary)]" />
               Microphone Sensitivity Check
             </span>
-            <span className={micGranted ? "text-emerald-400 font-semibold" : "text-amber-400 font-semibold"}>
+            <span className={micGranted ? "text-emerald-500 font-semibold" : "text-amber-500 font-semibold"}>
               {micGranted ? "Microphone Detected" : "Awaiting Permission"}
             </span>
           </div>
 
           {/* Level Bar */}
-          <div className="w-full h-3 rounded-full bg-slate-800/80 overflow-hidden relative">
+          <div className="w-full h-3 rounded-full bg-[var(--bg-card)] border border-[var(--border-default)] overflow-hidden relative">
             <div
-              className="h-full bg-gradient-to-r from-emerald-500 via-teal-400 to-sky-400 transition-all duration-75"
+              className="h-full bg-[var(--accent-primary)] transition-all duration-75 rounded-full"
               style={{ width: `${Math.max(4, micVolume)}%` }}
             />
           </div>
-          <p className="text-[11px] text-slate-400">
-            Say something out loud to test your microphone input level.
+          <p className="text-[11px] text-[var(--text-muted)]">
+            Say a few words out loud to test your microphone input level.
           </p>
 
           {errorMsg && (
-            <div className="flex items-start gap-2 text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+            <div className="flex items-start gap-2 text-xs text-[var(--error-text)] bg-[var(--error-bg)] p-2.5 rounded-xl border border-[var(--error-border)]">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{errorMsg}</span>
             </div>
           )}
         </div>
 
-        {/* Consent Accord */}
-        <div className="bg-indigo-950/20 rounded-xl p-4 border border-indigo-800/30 space-y-3">
-          <div className="flex items-center gap-2 text-indigo-300 font-medium text-xs">
-            <ShieldCheck className="w-4 h-4 text-indigo-400" />
+        {/* Privacy & Recording Consent */}
+        <div className="bg-[var(--bg-card-subtle)] rounded-2xl p-4 border border-[var(--border-default)] space-y-3">
+          <div className="flex items-center gap-2 text-[var(--text-primary)] font-medium text-xs">
+            <ShieldCheck className="w-4 h-4 text-[var(--accent-primary)]" />
             Candidate Privacy & Examination Consent
           </div>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            Your oral responses will be recorded and transcribed strictly for viva grading and advisory authenticity evaluation. Audio access is restricted exclusively to authorized course instructors.
+          <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+            Your oral responses are recorded and transcribed strictly for viva grading and advisory authenticity evaluation. Audio access is restricted exclusively to authorized course instructors.
           </p>
           <label className="flex items-center gap-3 cursor-pointer pt-1 group">
             <input
               type="checkbox"
               checked={consentChecked}
               onChange={(e) => setConsentChecked(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500/30 bg-slate-900 cursor-pointer"
+              className="w-4 h-4 rounded border-[var(--border-default)] text-[var(--accent-primary)] focus:ring-[var(--border-focus)] bg-[var(--bg-card)] cursor-pointer"
             />
-            <span className="text-xs font-medium text-slate-200 group-hover:text-white transition-colors">
+            <span className="text-xs font-medium text-[var(--text-secondary)] group-hover:text-[var(--text-primary)] transition-colors">
               I consent to voice audio recording during this examination session.
             </span>
           </label>
@@ -160,24 +165,25 @@ export default function MicCheckModal({
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-2">
-          <button
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={onCancel}
-            className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-colors"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+
+          <Button
+            type="button"
+            variant="primary"
+            size="md"
             disabled={!micGranted || !consentChecked}
             onClick={onConsentAndProceed}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white shadow-lg transition-all ${
-              micGranted && consentChecked
-                ? "bg-indigo-600 hover:bg-indigo-500 shadow-indigo-500/25 cursor-pointer"
-                : "bg-slate-800 text-slate-500 cursor-not-allowed shadow-none"
-            }`}
           >
             <Check className="w-4 h-4" />
-            Enter Examination Room
-          </button>
+            <span>Enter Examination Room</span>
+          </Button>
         </div>
       </div>
     </div>

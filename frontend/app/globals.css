@@ -2,39 +2,93 @@
 
 @layer base {
   :root {
-    --background: #090d16;
-    --foreground: #f8fafc;
-    --card: #0f172a;
-    --card-foreground: #f8fafc;
-    --primary: #6366f1;
-    --primary-foreground: #ffffff;
-    --muted: #1e293b;
-    --muted-foreground: #94a3b8;
-    --border: #1e293b;
-    --accent: #38bdf8;
+    --font-serif: "Newsreader", Georgia, serif;
+    --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+    /* Light Mode Tokens (Reference Screenshot 1) */
+    --bg-hero: #eaefeb;
+    --bg-surface: #fbfbf9;
+    --bg-card: #ffffff;
+    --bg-card-subtle: #f3f6f3;
+    --border-default: #e2e7e2;
+    --border-focus: #2d4f44;
+    --text-primary: #1a2421;
+    --text-secondary: #52605b;
+    --text-muted: #7c8b85;
+    --accent-primary: #2d4f44;
+    --accent-hover: #233e35;
+    --accent-contrast: #ffffff;
+    --ring-stroke: rgba(45, 79, 68, 0.12);
+    --ring-fill: rgba(45, 79, 68, 0.05);
+    --logo-bg: #2d4f44;
+    --logo-fg: #ffffff;
+    --error-bg: #fdf2f2;
+    --error-text: #b91c1c;
+    --error-border: #fca5a5;
+  }
+
+  .dark {
+    /* Dark Mode Tokens (Reference Screenshot 2) */
+    --bg-hero: #11211e;
+    --bg-surface: #182220;
+    --bg-card: #1f2b28;
+    --bg-card-subtle: #152220;
+    --border-default: #283633;
+    --border-focus: #6ea291;
+    --text-primary: #edf3f0;
+    --text-secondary: #a3b5ae;
+    --text-muted: #6c8078;
+    --accent-primary: #6ea291;
+    --accent-hover: #7eb0a0;
+    --accent-contrast: #0d1c18;
+    --ring-stroke: rgba(110, 162, 145, 0.18);
+    --ring-fill: rgba(110, 162, 145, 0.07);
+    --logo-bg: #6ea291;
+    --logo-fg: #11211e;
+    --error-bg: #261818;
+    --error-text: #f87171;
+    --error-border: #4d2424;
   }
 }
 
 body {
-  background-color: var(--background);
-  color: var(--foreground);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
   min-height: 100vh;
   overflow-x: hidden;
   font-feature-settings: "rlig" 1, "calt" 1;
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
-/* Glassmorphism helpers */
+/* Editorial Serif Utility */
+.font-editorial {
+  font-family: var(--font-serif);
+}
+
+/* Editorial Ambient Rings Background */
+.ambient-rings {
+  position: absolute;
+  right: -80px;
+  bottom: -80px;
+  width: 480px;
+  height: 480px;
+  pointer-events: none;
+  border-radius: 9999px;
+  border: 1px solid var(--ring-stroke);
+  box-shadow: 
+    0 0 0 50px var(--ring-fill),
+    0 0 0 100px transparent,
+    0 0 0 101px var(--ring-stroke),
+    0 0 0 180px transparent,
+    0 0 0 181px var(--ring-stroke);
+}
+
+/* Glassmorphism Panels tailored to Sage/Spruce aesthetic */
 .glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.glass-card {
-  background: rgba(30, 41, 59, 0.6);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
 }
 
 /* Audio Visualizer & Orb Animations */
@@ -79,9 +133,9 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.2);
+  background: var(--border-default);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.4);
+  background: var(--text-muted);
 }
