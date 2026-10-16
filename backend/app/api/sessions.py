@@ -153,3 +153,43 @@ async def get_session_recovery_state(
             detail=str(e),
         )
 
+
+@router.post("/{session_id}/ws-ticket")
+async def generate_websocket_ticket(
+    session_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict:
+    """Generate a single-use, 30-second ticket for authenticating WebSocket connections (WS-2.3)."""
+    from app.core.security import create_ws_ticket
+
+    stmt = select(VivaSession).where(VivaSession.id == session_id)
+    session = (await db.execute(stmt)).scalar_one_or_none()
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with id '{session_id}' not found",
+        )
+
+    # Access control: Only the student or a teacher/admin can request a ticket
+    if current_user.role == UserRole.STUDENT and session.student_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only connect to your own examination session",
+        )
+
+    if session.status in [SessionStatus.COMPLETED, SessionStatus.CANCELLED]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot connect to a session that is already {session.status.value}",
+        )
+
+    ticket = create_ws_ticket(
+        session_id=session.id,
+        user_id=current_user.id,
+        role=current_user.role.value,
+        expiry_seconds=30,
+    )
+    return {"ticket": ticket, "expires_in": 30}
+
+

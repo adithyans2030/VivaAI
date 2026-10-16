@@ -35,19 +35,36 @@ from app.ws.protocol import (
 router = APIRouter(tags=["websocket"])
 
 
-async def authenticate_ws(websocket: WebSocket, token: str) -> Optional[User]:
-    """Validate JWT token during WebSocket handshake."""
-    try:
-        payload = decode_token(token)
-        user_id = payload.get("sub")
-        if not user_id or payload.get("type") != "access":
+async def authenticate_ws(
+    websocket: WebSocket, session_id: str, ticket: Optional[str] = None, token: Optional[str] = None
+) -> Optional[User]:
+    """Validate single-use WebSocket ticket (preferred) or fallback JWT token during handshake."""
+    from app.core.security import consume_ws_ticket
+
+    user_id = None
+    if ticket:
+        try:
+            record = consume_ws_ticket(ticket, session_id)
+            user_id = record["user_id"]
+        except Exception as e:
+            logger.warning(f"WebSocket ticket auth failed for session {session_id}: {e}")
             return None
-        async with async_session_factory() as db:
-            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
-            if user and user.is_active:
-                return user
-    except Exception as e:
-        logger.warning(f"WebSocket auth failed: {e}")
+    elif token:
+        try:
+            payload = decode_token(token)
+            user_id = payload.get("sub")
+            if not user_id or payload.get("type") != "access":
+                return None
+        except Exception as e:
+            logger.warning(f"WebSocket JWT auth failed: {e}")
+            return None
+    else:
+        return None
+
+    async with async_session_factory() as db:
+        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if user and user.is_active:
+            return user
     return None
 
 
@@ -55,12 +72,13 @@ async def authenticate_ws(websocket: WebSocket, token: str) -> Optional[User]:
 async def viva_session_websocket(
     websocket: WebSocket,
     session_id: str,
-    token: str = Query(...),
+    ticket: Optional[str] = Query(None),
+    token: Optional[str] = Query(None),
 ):
-    """Real-time voice viva session WebSocket endpoint."""
-    user = await authenticate_ws(websocket, token)
+    """Real-time voice viva session WebSocket endpoint supporting single-use tickets (WS-2.3)."""
+    user = await authenticate_ws(websocket, session_id, ticket=ticket, token=token)
     if not user:
-        await websocket.close(code=4401, reason="Authentication failed")
+        await websocket.close(code=4401, reason="Authentication failed: invalid or expired ticket/token")
         return
 
     # Verify session and consent

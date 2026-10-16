@@ -1,4 +1,4 @@
-"""Audio streaming endpoint for student turn recordings."""
+"""Audio streaming endpoint for student turn recordings with strict access control (WS-2.5)."""
 
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -10,6 +10,7 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.session import VivaSession
+from app.models.subject import Subject
 from app.models.turn import Turn
 from app.models.user import User, UserRole
 
@@ -24,7 +25,7 @@ async def get_turn_audio(
     current_user: User = Depends(get_current_user),
 ):
     """Stream or download a candidate's recorded audio for a viva turn."""
-    # Verify session authorization
+    # Verify session existence
     stmt = select(VivaSession).where(VivaSession.id == session_id)
     session = (await db.execute(stmt)).scalar_one_or_none()
     if not session:
@@ -33,12 +34,22 @@ async def get_turn_audio(
             detail=f"Session '{session_id}' not found",
         )
 
-    # Students may only access their own session audio; teachers/admins can access any
-    if current_user.role == UserRole.STUDENT and session.student_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied to this audio recording",
-        )
+    # Access control: Only the session's student, assigned teachers of the subject, and admins may fetch audio (WS-2.5)
+    if current_user.role == UserRole.STUDENT:
+        if session.student_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this audio recording",
+            )
+    elif current_user.role == UserRole.TEACHER:
+        # Check if this teacher is assigned to the session's subject
+        subj_stmt = select(Subject).where(Subject.id == session.subject_id)
+        subject = (await db.execute(subj_stmt)).scalar_one_or_none()
+        if subject and subject.teacher_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: you are not the assigned teacher for this course",
+            )
 
     # Check file on disk
     audio_path = settings.AUDIO_STORAGE_PATH / session_id / f"{turn_id}.wav"

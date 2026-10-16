@@ -1,7 +1,8 @@
 """Document management and file upload routes."""
 
-import shutil
 from pathlib import Path
+import re
+import shutil
 from typing import Annotated, List
 import uuid
 
@@ -21,6 +22,31 @@ router = APIRouter(tags=["documents"])
 
 ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md"}
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename to strip directory traversal sequences and restrict to safe character set (WS-2.4)."""
+    # Extract basename to strip path components (Windows and POSIX)
+    base = Path(filename).name
+    # Strip dangerous characters
+    base = base.replace("\\", "_").replace("/", "_").replace(":", "_").replace("..", "_")
+    # Restrict to safe ASCII alphanumeric, dots, underscores, dashes
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]", "_", base)
+    sanitized = sanitized.lstrip(".")
+    return sanitized if sanitized else "uploaded_document"
+
+
+def validate_magic_bytes(header: bytes, ext: str) -> bool:
+    """Verify actual file content type via magic byte signatures (WS-2.4)."""
+    if ext == ".pdf":
+        return header.startswith(b"%PDF-")
+    elif ext == ".docx":
+        # DOCX files are ZIP archives starting with PK\x03\x04
+        return header.startswith(b"PK\x03\x04")
+    elif ext in {".txt", ".md"}:
+        # Plain text / Markdown should not contain binary null bytes
+        return b"\x00" not in header
+    return False
 
 
 @router.get("/subjects/{subject_id}/documents", response_model=List[DocumentResponse])
@@ -59,23 +85,41 @@ async def upload_document(
             detail=f"Subject with id '{subject_id}' not found",
         )
 
-    file_ext = Path(file.filename or "").suffix.lower()
+    raw_filename = file.filename or "uploaded_document"
+    clean_filename = sanitize_filename(raw_filename)
+    file_ext = Path(clean_filename).suffix.lower()
+
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported file format '{file_ext}'. Allowed formats: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
+    # Read initial chunk to validate magic bytes (WS-2.4)
+    initial_chunk = await file.read(2048)
+    if not initial_chunk:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty",
+        )
+
+    if not validate_magic_bytes(initial_chunk, file_ext):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File content does not match expected format for extension '{file_ext}'",
+        )
+
     # Prepare subject-specific directory
     subject_dir = settings.DOCUMENT_STORAGE_PATH / subject_id
     subject_dir.mkdir(parents=True, exist_ok=True)
 
-    unique_filename = f"{uuid.uuid4().hex}_{file.filename}"
+    unique_filename = f"{uuid.uuid4().hex}_{clean_filename}"
     saved_path = subject_dir / unique_filename
 
-    # Save file contents
-    file_size = 0
+    # Save file contents with 25MB safety cap
+    file_size = len(initial_chunk)
     with open(saved_path, "wb") as buffer:
+        buffer.write(initial_chunk)
         while chunk := await file.read(1024 * 1024):  # 1MB chunks
             file_size += len(chunk)
             if file_size > MAX_FILE_SIZE:
@@ -88,7 +132,7 @@ async def upload_document(
 
     document = Document(
         subject_id=subject_id,
-        filename=file.filename or unique_filename,
+        filename=clean_filename,
         file_path=str(saved_path),
         file_type=file_ext.lstrip("."),
         file_size_bytes=file_size,

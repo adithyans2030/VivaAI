@@ -127,3 +127,20 @@ async def student_user(db_session: AsyncSession) -> User:
     await db_session.commit()
     await db_session.refresh(student)
     return student
+
+
+@pytest.fixture
+async def admin_user(db_session: AsyncSession) -> User:
+    """Create a default administrator user."""
+    admin = User(
+        email="admin@vivaiq.edu",
+        hashed_password=get_password_hash("admin123"),
+        full_name="System Administrator",
+        role=UserRole.ADMIN,
+        is_active=True,
+    )
+    db_session.add(admin)
+    await db_session.commit()
+    await db_session.refresh(admin)
+    return admin
+
