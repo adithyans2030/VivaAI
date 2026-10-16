@@ -263,9 +263,11 @@ export default function TeacherDashboardPage() {
 
   // Filtered Sessions
   const filteredSessions = sessions.filter((s) => {
+    const studentName = s.student_name || "Candidate";
+    const subjectName = s.subject_name || "";
     const matchesQuery =
-      s.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s.subject_name && s.subject_name.toLowerCase().includes(searchQuery.toLowerCase()));
+      studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      subjectName.toLowerCase().includes(searchQuery.toLowerCase());
 
     const matchesFlag =
       filterFlag === "all" || s.overall_authenticity_likelihood === filterFlag;
@@ -391,7 +393,7 @@ export default function TeacherDashboardPage() {
                         <div>
                           <div className="flex items-center gap-2">
                             <h4 className="text-sm font-semibold text-[var(--text-primary)]">
-                              {s.student_name}
+                              {s.student_name || "Candidate"}
                             </h4>
                             {isSelected && (
                               <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)]" />
@@ -446,7 +448,7 @@ export default function TeacherDashboardPage() {
                       Candidate Examination Record
                     </Badge>
                     <h2 className="font-editorial text-2xl font-normal text-[var(--text-primary)]">
-                      {selectedSession.student_name}
+                      {selectedSession.student_name || "Candidate"}
                     </h2>
                     <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                       {selectedSession.subject_name} • Oral Viva Voce
