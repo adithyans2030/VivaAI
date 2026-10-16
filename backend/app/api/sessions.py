@@ -134,3 +134,22 @@ async def get_session_details(
     detail.subject_name = session.subject.name if session.subject else None
     detail.subject_code = session.subject.code if session.subject else None
     return detail
+
+
+@router.get("/{session_id}/state")
+async def get_session_recovery_state(
+    session_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Retrieve lightweight state payload for student reconnection recovery."""
+    from app.services.session_state import get_viva_orchestrator
+    orchestrator = get_viva_orchestrator()
+    try:
+        return await orchestrator.get_recovery_state(db, session_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
+

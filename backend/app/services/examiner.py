@@ -76,8 +76,30 @@ class ExaminerService:
         current_running_score: float = 7.0,
         previous_question_types: Optional[List[str]] = None,
         preferred_topic: Optional[str] = None,
+        followup_context: Optional[Dict[str, Any]] = None,
     ) -> GeneratedQuestion:
         """Formulate the next exam question grounded in RAG material."""
+        # Handle targeted follow-up probe if flagged
+        if followup_context and turn_number > 1:
+            orig_q = followup_context.get("question", "")
+            ans = followup_context.get("answer", "")
+            gap = followup_context.get("type", "Deepen conceptual understanding")
+            probe_text = await self.generate_probe(
+                subject_name=subject_name,
+                original_question=orig_q,
+                student_answer=ans,
+                gap_description=gap,
+            )
+            return GeneratedQuestion(
+                turn_number=turn_number,
+                topic=preferred_topic or "Follow-up Probe",
+                question_type="probe",
+                question_text=probe_text,
+                expected_key_points=["Authentic spontaneous reasoning", "Clear conceptual analogy"],
+                source_references=[],
+                prompt_version=f"{self.prompt_version}.0",
+            )
+
         q_type = self.determine_next_question_type(
             turn_number, current_running_score, previous_question_types or []
         )

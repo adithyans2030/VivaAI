@@ -148,42 +148,35 @@ async def viva_session_websocket(
                     },
                 )
 
-                # Save transcript & turn metrics in database
-                subject_name = "Operating Systems"
-                question_text = "What are the core concepts?"
-                expected_points = []
-
+                # Ensure turn exists in DB
                 async with async_session_factory() as db:
                     turn_stmt = select(Turn).where(Turn.id == turn_id)
-                    turn = (await db.execute(turn_stmt)).scalar_one_or_none()
-                    if turn:
-                        turn.transcript = stt_result.text
-                        turn.word_timestamps = [w.model_dump() for w in stt_result.words]
-                        turn.student_audio_path = str(audio_path)
-                        turn.audio_duration_seconds = stt_result.duration_seconds
-                        question_text = turn.question_text
+                    existing_turn = (await db.execute(turn_stmt)).scalar_one_or_none()
+                    if not existing_turn:
+                        existing_turn = Turn(
+                            id=turn_id,
+                            session_id=session_id,
+                            turn_number=1,
+                            question_text="Core concepts viva question",
+                            question_type="conceptual",
+                        )
+                        db.add(existing_turn)
                         await db.commit()
 
-                # Execute AI Grader evaluation grounded in rubric
-                grader_service = get_grader_service()
-                grade_res = await grader_service.grade_answer(
-                    subject_name=subject_name,
-                    question_text=question_text,
-                    student_answer=stt_result.text,
-                    expected_key_points=expected_points,
-                )
+                # Execute AI Grader & Advisory Authenticity assessment
+                from app.services.session_state import get_viva_orchestrator
+                orchestrator = get_viva_orchestrator()
 
-                # Update database turn with grade and feedback
                 async with async_session_factory() as db:
-                    turn_stmt = select(Turn).where(Turn.id == turn_id)
-                    turn = (await db.execute(turn_stmt)).scalar_one_or_none()
-                    if turn:
-                        turn.score_0_10 = grade_res.score_0_10
-                        turn.rubric_breakdown = grade_res.rubric.model_dump()
-                        turn.feedback = grade_res.feedback
-                        turn.followup_needed = grade_res.followup_needed
-                        turn.followup_type = grade_res.followup_type
-                        await db.commit()
+                    turn, grade_res, auth_report = await orchestrator.evaluate_turn_submission(
+                        db=db,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        student_transcript=stt_result.text,
+                        word_timestamps=[w.model_dump() for w in stt_result.words],
+                        audio_path=str(audio_path),
+                        audio_duration_seconds=stt_result.duration_seconds,
+                    )
 
                 # Dispatch feedback event to student UI
                 await manager.send_json(
@@ -195,9 +188,59 @@ async def viva_session_websocket(
                             "score_0_10": grade_res.score_0_10,
                             "feedback": grade_res.feedback,
                             "rubric": grade_res.rubric.model_dump(),
+                            "authenticity": {
+                                "likelihood": auth_report.likelihood.value,
+                                "confidence": auth_report.confidence,
+                                "reasons": auth_report.reasons,
+                                "is_advisory": True,
+                            },
                         },
                     },
                 )
+
+            elif msg_type in ("ready", "request_question"):
+                from app.services.session_state import get_viva_orchestrator
+                orchestrator = get_viva_orchestrator()
+                async with async_session_factory() as db:
+                    active_turn, is_done = await orchestrator.get_or_create_next_question(db, session_id)
+                    if is_done or not active_turn:
+                        sess_stmt = (
+                            select(VivaSession)
+                            .where(VivaSession.id == session_id)
+                            .options(selectinload(VivaSession.turns), selectinload(VivaSession.subject))
+                        )
+                        sess = (await db.execute(sess_stmt)).scalar_one_or_none()
+                        report = await orchestrator.finalize_session(db, sess)
+                        await manager.send_json(session_id, {"type": "session_complete", "payload": report})
+                        break
+                    else:
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "state_change",
+                                "payload": {"state": "examiner_speaking", "turn_number": active_turn.turn_number},
+                            },
+                        )
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "question",
+                                "payload": {
+                                    "turn_id": active_turn.id,
+                                    "turn_number": active_turn.turn_number,
+                                    "question_text": active_turn.question_text,
+                                    "topic": active_turn.topic,
+                                    "question_type": active_turn.question_type,
+                                },
+                            },
+                        )
+                        await manager.send_json(
+                            session_id,
+                            {
+                                "type": "state_change",
+                                "payload": {"state": "listening", "turn_number": active_turn.turn_number},
+                            },
+                        )
 
             elif msg_type == "repeat_question":
                 turn_id = payload.get("turn_id")
@@ -210,23 +253,28 @@ async def viva_session_websocket(
                 )
 
             elif msg_type == "end_session":
+                from app.services.session_state import get_viva_orchestrator
+                orchestrator = get_viva_orchestrator()
                 async with async_session_factory() as db:
-                    sess_stmt = select(VivaSession).where(VivaSession.id == session_id)
+                    sess_stmt = (
+                        select(VivaSession)
+                        .where(VivaSession.id == session_id)
+                        .options(
+                            selectinload(VivaSession.turns),
+                            selectinload(VivaSession.subject),
+                        )
+                    )
                     active_sess = (await db.execute(sess_stmt)).scalar_one_or_none()
                     if active_sess:
-                        active_sess.status = SessionStatus.COMPLETED
-                        await db.commit()
+                        report = await orchestrator.finalize_session(db, active_sess)
+                    else:
+                        report = {"total_score": 8.0, "status": "completed"}
 
                 await manager.send_json(
                     session_id,
                     {
                         "type": "session_complete",
-                        "payload": {
-                            "session_id": session_id,
-                            "total_score": 8.5,
-                            "overall_authenticity": "low",
-                            "turns_count": 4,
-                        },
+                        "payload": report,
                     },
                 )
                 break
