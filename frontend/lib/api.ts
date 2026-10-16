@@ -229,6 +229,13 @@ class ApiClient {
     return this.request<VivaSession>(`/sessions/${id}`);
   }
 
+  async getWsTicket(sessionId: string): Promise<string> {
+    const data = await this.request<{ ticket: string; expires_in: number }>(`/sessions/${sessionId}/ws-ticket`, {
+      method: "POST",
+    });
+    return data.ticket;
+  }
+
   // Reports & Overrides
   async updateTeacherNotes(sessionId: string, notes: string): Promise<{ message: string }> {
     return this.request<{ message: string }>(`/reports/sessions/${sessionId}/notes`, {

@@ -19,6 +19,8 @@ import {
   Layers,
   ChevronRight,
   CheckCircle2,
+  AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 
 export default function StudentVivaPage() {
@@ -29,6 +31,9 @@ export default function StudentVivaPage() {
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [session, setSession] = useState<VivaSession | null>(null);
   const [isMicModalOpen, setIsMicModalOpen] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   // Active examination state
   const [examinerState, setExaminerState] = useState<ExaminerState>("idle");
@@ -45,64 +50,44 @@ export default function StudentVivaPage() {
     question_type?: string;
   } | null>(null);
 
-  // Questions simulation script if offline/demo
-  const sampleTurns: Partial<Turn>[] = [
-    {
-      turn_number: 1,
-      question_type: "warmup",
-      topic: "Course Overview",
-      question_text: "Welcome to your viva voce examination. To begin, could you briefly introduce yourself and share which operating system topic you found most interesting during your study?",
-      prompt_version: "v1.0",
-    },
-    {
-      turn_number: 2,
-      question_type: "conceptual",
-      topic: "Deadlocks",
-      question_text: "Let's discuss deadlocks. What are Coffman's four necessary conditions that must hold simultaneously for a deadlock to occur?",
-      prompt_version: "v1.0",
-    },
-    {
-      turn_number: 3,
-      question_type: "application",
-      topic: "Resource Allocation",
-      question_text: "Suppose two concurrent processes both require a database lock and a disk write channel. If process A holds the lock and waits for the channel, while process B holds the channel and waits for the lock, what deadlock avoidance strategy would you employ?",
-      prompt_version: "v1.0",
-    },
-    {
-      turn_number: 4,
-      question_type: "probe",
-      topic: "Banker's Algorithm",
-      question_text: "In your own words, without quoting textbook definitions, explain why the Banker's algorithm might be considered too conservative or impractical in modern high-throughput operating systems.",
-      prompt_version: "v1.0",
-    },
-  ];
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
-  // Load available subjects
-  useEffect(() => {
-    api.listSubjects()
-      .then((data) => {
-        setSubjects(data);
-        if (data.length > 0) {
-          setSelectedSubject(data[0]);
-        }
-      })
-      .catch(() => {
-        const mockSubject: Subject = {
-          id: "cs301-demo",
-          name: "Operating Systems & Concurrency",
-          code: "CS301",
-          description: "Process synchronization, deadlock conditions, resource graphs, and memory management.",
+  // Load available subjects from backend
+  const loadSubjects = async () => {
+    setFetchError(null);
+    try {
+      const data = await api.listSubjects();
+      setSubjects(data);
+      if (data.length > 0) {
+        setSelectedSubject(data[0]);
+      }
+    } catch (err: any) {
+      if (isDemoMode) {
+        const demoSubject: Subject = {
+          id: "demo-course",
+          name: "Computer Science Viva (Demo)",
+          code: "CS101",
+          description: "Demo course material available in offline simulation mode.",
           teacher_id: "teacher-1",
-          document_count: 3,
+          document_count: 1,
         };
-        setSubjects([mockSubject]);
-        setSelectedSubject(mockSubject);
-      });
+        setSubjects([demoSubject]);
+        setSelectedSubject(demoSubject);
+      } else {
+        setFetchError(err.message || "Unable to connect to VivaIQ server. Please ensure the backend is running.");
+      }
+    }
+  };
+
+  useEffect(() => {
+    loadSubjects();
   }, []);
 
   // Text-To-Speech function
   const speakQuestion = (text: string, onEnd?: () => void) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setExaminerState("listening");
+      startListening();
       if (onEnd) onEnd();
       return;
     }
@@ -141,13 +126,14 @@ export default function StudentVivaPage() {
     try {
       const recorder = new AudioStreamRecorder({
         onAudioChunk: (chunkB64, chunkIndex) => {
-          const currentTurnId = currentQuestion?.turn_id || `turn-${currentTurnIndex + 1}`;
-          wsClientRef.current?.sendAudioChunk(currentTurnId, chunkIndex, chunkB64);
+          if (currentQuestion?.turn_id) {
+            wsClientRef.current?.sendAudioChunk(currentQuestion.turn_id, chunkIndex, chunkB64);
+          }
         },
         onVolumeChange: (vol) => {
           setAudioLevel(vol);
         },
-        onSpeechEnd: (durationMs) => {
+        onSpeechEnd: () => {
           handleSubmitAnswer();
         },
       });
@@ -157,6 +143,7 @@ export default function StudentVivaPage() {
       console.warn("Could not start audio stream recorder:", e);
     }
 
+    // Client-side web speech recognition for live speech captions
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
@@ -201,160 +188,112 @@ export default function StudentVivaPage() {
     setAudioLevel(0);
   };
 
-  // Start Exam Flow
+  // Start Real Exam Flow
   const handleProceedAfterConsent = async () => {
     setIsMicModalOpen(false);
     if (!selectedSubject) return;
 
-    let activeSessionId = "viva-sess-1";
+    setLiveError(null);
+    setIsInitializing(true);
+
     try {
+      // 1. Create real session on backend
       const sess = await api.createSession(selectedSubject.id);
+      // 2. Record explicit student recording consent
       await api.recordConsent(sess.id, true);
       setSession(sess);
-      activeSessionId = sess.id;
-    } catch {
-      const mockSess: VivaSession = {
-        id: "viva-sess-1",
-        student_id: "student-1",
-        subject_id: selectedSubject.id,
-        status: "in_progress",
-        recording_consent: true,
-        overall_authenticity_likelihood: "unknown",
-        created_at: new Date().toISOString(),
-      };
-      setSession(mockSess);
+
+      // 3. Obtain short-lived, single-use WebSocket ticket (WS-2.3)
+      const ticket = await api.getWsTicket(sess.id);
+
+      // 4. Connect WebSocket with ticket
+      const ws = new VivaWebSocketClient(sess.id, ticket, {
+        onOpen: () => {
+          setIsInitializing(false);
+          ws.sendReady();
+        },
+        onQuestion: (q) => {
+          setCurrentQuestion(q);
+          setCurrentTurnIndex(q.turn_number - 1);
+          setRepeatedCount(0);
+          speakQuestion(q.question_text);
+        },
+        onTranscript: (text) => {
+          if (text) setCurrentTranscript(text);
+        },
+        onFeedback: (fb) => {
+          const completedTurn: Turn = {
+            id: fb.turn_id,
+            turn_number: currentTurnIndex + 1,
+            question_text: currentQuestion?.question_text || "",
+            question_type: currentQuestion?.question_type || "conceptual",
+            topic: currentQuestion?.topic || "Topic",
+            transcript: currentTranscript.trim(),
+            score_0_10: fb.score_0_10,
+            rubric_breakdown: fb.rubric,
+            feedback: fb.feedback,
+            authenticity_likelihood: fb.authenticity?.likelihood || "low",
+            authenticity_confidence: fb.authenticity?.confidence || 0.9,
+            authenticity_reasons: fb.authenticity?.reasons || [],
+          };
+          setTurns((prev) => [...prev, completedTurn]);
+        },
+        onSessionComplete: () => {
+          setExaminerState("completed");
+        },
+        onStateChange: (st) => {
+          if (
+            st === "processing" ||
+            st === "examiner_speaking" ||
+            st === "listening" ||
+            st === "completed"
+          ) {
+            setExaminerState(st as any);
+          }
+        },
+        onError: (err) => {
+          setLiveError(err.message || "An error occurred during examination.");
+        },
+      });
+
+      ws.connect();
+      wsClientRef.current = ws;
+    } catch (err: any) {
+      setIsInitializing(false);
+      setLiveError(err.message || "Failed to start viva session. Please check connection and retry.");
     }
-
-    // Connect WebSocket
-    const token = (typeof window !== "undefined" && localStorage.getItem("vivaiq_token")) || "demo-token";
-    let isLiveSession = false;
-
-    const ws = new VivaWebSocketClient(activeSessionId, token, {
-      onOpen: () => {
-        isLiveSession = true;
-        ws.sendReady();
-      },
-      onQuestion: (q) => {
-        isLiveSession = true;
-        setCurrentQuestion(q);
-        setCurrentTurnIndex(q.turn_number - 1);
-        setRepeatedCount(0);
-        speakQuestion(q.question_text);
-      },
-      onTranscript: (text, words) => {
-        if (text) setCurrentTranscript(text);
-      },
-      onFeedback: (fb) => {
-        const completedTurn: Turn = {
-          id: fb.turn_id,
-          turn_number: currentTurnIndex + 1,
-          question_text: currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text || "",
-          question_type: currentQuestion?.question_type || sampleTurns[currentTurnIndex]?.question_type || "conceptual",
-          topic: currentQuestion?.topic || sampleTurns[currentTurnIndex]?.topic || "General",
-          transcript: currentTranscript.trim(),
-          score_0_10: fb.score_0_10,
-          rubric_breakdown: fb.rubric,
-          feedback: fb.feedback,
-          authenticity_likelihood: fb.authenticity?.likelihood || "low",
-          authenticity_confidence: fb.authenticity?.confidence || 0.9,
-          authenticity_reasons: fb.authenticity?.reasons || [],
-        };
-        setTurns((prev) => [...prev, completedTurn]);
-      },
-      onSessionComplete: (summary) => {
-        setExaminerState("completed");
-      },
-      onStateChange: (st) => {
-        if (st === "processing" || st === "examiner_speaking" || st === "listening" || st === "completed") {
-          setExaminerState(st as any);
-        }
-      },
-    });
-    ws.connect();
-    wsClientRef.current = ws;
-
-    // Fallback: If live backend WebSocket doesn't fire question within 1.5s, launch sample turn 0
-    setTimeout(() => {
-      if (!isLiveSession) {
-        launchTurn(0);
-      }
-    }, 1500);
   };
 
-  const launchTurn = (index: number) => {
-    if (index >= sampleTurns.length) {
-      setExaminerState("completed");
-      return;
-    }
-
-    setCurrentTurnIndex(index);
-    setRepeatedCount(0);
-    const turnData = sampleTurns[index];
-    speakQuestion(turnData.question_text || "");
-  };
-
-  // Submit Answer
+  // Submit Answer to Real Backend
   const handleSubmitAnswer = () => {
     stopListening();
     setExaminerState("processing");
 
-    const turnId = currentQuestion?.turn_id || `turn-${currentTurnIndex + 1}`;
-    wsClientRef.current?.sendSpeechEnd(turnId);
-
-    const answer = currentTranscript.trim() || "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.";
-
-    // Fallback timer if running offline / demo mode
-    setTimeout(() => {
-      if (examinerState === "processing") {
-        const mockRubric = {
-          correctness: 8.5,
-          completeness: 8.0,
-          clarity: 9.0,
-          depth: 7.5,
-        };
-
-        const completedTurn: Turn = {
-          id: `turn-${currentTurnIndex + 1}`,
-          turn_number: currentTurnIndex + 1,
-          question_text: currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text || "",
-          question_type: currentQuestion?.question_type || sampleTurns[currentTurnIndex]?.question_type || "conceptual",
-          topic: currentQuestion?.topic || sampleTurns[currentTurnIndex]?.topic || "General",
-          transcript: answer,
-          score_0_10: currentTurnIndex === 0 ? 9.0 : 8.2,
-          rubric_breakdown: mockRubric,
-          feedback: "Sound foundational understanding demonstrated with clear articulation.",
-          authenticity_likelihood: currentTurnIndex === 3 ? "low" : "low",
-          authenticity_confidence: 0.88,
-          authenticity_reasons: [
-            "Conversational pause frequency consistent with spontaneous reasoning",
-            "Low n-gram verbatim overlap with textbook reference chunks",
-            "Natural prosodic pitch variability across clauses",
-          ],
-        };
-
-        setTurns((prev) => [...prev, completedTurn]);
-
-        if (currentTurnIndex + 1 < sampleTurns.length) {
-          launchTurn(currentTurnIndex + 1);
-        } else {
-          setExaminerState("completed");
-        }
-      }
-    }, 4500);
+    if (currentQuestion?.turn_id) {
+      wsClientRef.current?.sendSpeechEnd(currentQuestion.turn_id);
+    }
+    // The UI remains in 'processing' state while the real backend transcribes & grades.
+    // No fake timers or fabricated results (WS-3).
   };
 
-  // Repeat question
+  // Repeat question (at most 1 repeat permitted per turn)
   const handleRepeatQuestion = () => {
-    if (repeatedCount >= 1) return;
+    if (repeatedCount >= 1 || !currentQuestion) return;
     setRepeatedCount((c) => c + 1);
     stopListening();
-    const turnId = currentQuestion?.turn_id || `turn-${currentTurnIndex + 1}`;
-    wsClientRef.current?.sendRepeatQuestion(turnId);
-    speakQuestion(currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text || "");
+    wsClientRef.current?.sendRepeatQuestion(currentQuestion.turn_id);
+    speakQuestion(currentQuestion.question_text);
   };
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-8 text-[var(--text-primary)]">
+      {/* Persistent Demo Mode Banner if explicitly active */}
+      {isDemoMode && (
+        <div className="p-2.5 rounded-xl text-center text-xs bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+          Demo mode: results are simulated for offline presentation.
+        </div>
+      )}
+
       {/* ------------------------------------------------------------- */}
       {/* Subject Selection View                                        */}
       {/* ------------------------------------------------------------- */}
@@ -368,195 +307,238 @@ export default function StudentVivaPage() {
               </span>
             </div>
             <h1 className="font-editorial text-4xl sm:text-5xl font-normal tracking-tight">
-              Select Subject for Viva Voce
+              Select Your Examination Subject
             </h1>
-            <p className="text-sm text-[var(--text-secondary)] max-w-md mx-auto leading-relaxed">
-              The AI examiner asks questions grounded directly in your syllabus and evaluates your spoken answers in real time.
+            <p className="text-sm text-[var(--text-secondary)] max-w-lg mx-auto leading-relaxed">
+              Examinations are strictly grounded in course textbooks, syllabus notes, and lecture materials uploaded by your professors.
             </p>
           </div>
 
-          <div className="grid gap-4 mt-8">
-            {subjects.map((subj) => (
-              <div
-                key={subj.id}
-                onClick={() => setSelectedSubject(subj)}
-                className={`p-6 rounded-2xl border transition-all cursor-pointer ${
-                  selectedSubject?.id === subj.id
-                    ? "bg-[var(--bg-card)] border-[var(--border-focus)] shadow-md ring-1 ring-[var(--border-focus)]"
-                    : "bg-[var(--bg-card)] border-[var(--border-default)] hover:border-[var(--text-secondary)] hover:bg-[var(--bg-card-subtle)]"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl bg-[var(--bg-hero)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)] font-bold text-sm">
-                      {subj.code}
-                    </div>
-                    <div>
-                      <h3 className="text-base font-semibold text-[var(--text-primary)]">{subj.name}</h3>
-                      <p className="text-xs text-[var(--text-secondary)] line-clamp-1 mt-0.5">{subj.description}</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-[var(--text-muted)]" />
-                </div>
+          {/* Connection Error Banner */}
+          {fetchError ? (
+            <div className="p-6 rounded-2xl bg-[var(--error-bg)] border border-[var(--error-border)] space-y-3 text-center">
+              <div className="flex items-center justify-center gap-2 text-[var(--error-text)] font-semibold text-sm">
+                <AlertCircle className="w-5 h-5" />
+                Connection Unavailable
               </div>
-            ))}
-          </div>
+              <p className="text-xs text-[var(--text-secondary)] max-w-md mx-auto">{fetchError}</p>
+              <Button size="sm" variant="outline" onClick={loadSubjects} className="mt-2">
+                <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+                Retry Connection
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {subjects.map((subj) => {
+                  const isSelected = selectedSubject?.id === subj.id;
+                  return (
+                    <div
+                      key={subj.id}
+                      onClick={() => setSelectedSubject(subj)}
+                      className={`p-5 rounded-2xl border transition-all cursor-pointer text-left space-y-2.5 ${
+                        isSelected
+                          ? "bg-[var(--bg-card)] border-[var(--border-focus)] shadow-sm ring-1 ring-[var(--border-focus)]"
+                          : "bg-[var(--bg-card)] border-[var(--border-default)] hover:border-[var(--border-focus)] hover:bg-[var(--bg-card-subtle)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--accent-primary)] font-mono">
+                          {subj.code}
+                        </span>
+                        {isSelected && <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)]" />}
+                      </div>
 
-          <div className="flex justify-end pt-4">
-            <Button
-              onClick={() => setIsMicModalOpen(true)}
-              disabled={!selectedSubject}
-              variant="primary"
-              size="lg"
-            >
-              <Mic className="w-4 h-4" />
-              <span>Begin Microphone Check & Consent</span>
-            </Button>
+                      <h3 className="font-editorial text-xl font-normal leading-snug">{subj.name}</h3>
+
+                      <p className="text-xs text-[var(--text-secondary)] line-clamp-2 leading-relaxed">
+                        {subj.description}
+                      </p>
+
+                      <div className="pt-2 flex items-center justify-between text-[11px] text-[var(--text-muted)] border-t border-[var(--border-default)]">
+                        <span>{subj.document_count || 1} course document(s)</span>
+                        <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {subjects.length > 0 && (
+                <div className="flex justify-center pt-4">
+                  <Button
+                    size="lg"
+                    onClick={() => setIsMicModalOpen(true)}
+                    disabled={!selectedSubject || isInitializing}
+                    className="min-w-[260px]"
+                  >
+                    <Mic className="w-4 h-4 mr-2" />
+                    Enter Viva Room
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Ethical Guardrail Disclaimer */}
+          <div className="flex items-center justify-center gap-2 text-xs text-[var(--text-secondary)] pt-4 text-center">
+            <ShieldCheck className="w-4 h-4 text-[var(--accent-primary)] shrink-0" />
+            <span>
+              Your assessment supports a conversation. It is advisory only, never a cheating detector or a final judgement.
+            </span>
           </div>
         </div>
       ) : (
         /* ------------------------------------------------------------- */
-        /* Active Live Viva Room                                         */
+        /* Active Viva Examination Room                                  */
         /* ------------------------------------------------------------- */
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Main Focus Area (Hero Audio Orb & Active Question) */}
-          <div className="lg:col-span-8 space-y-6">
-            {/* Top Progress Bar */}
-            <div className="p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] flex items-center justify-between shadow-xs">
-              <div>
-                <span className="text-[11px] font-semibold text-[var(--accent-primary)] uppercase tracking-wider block">
-                  {selectedSubject?.code} • {selectedSubject?.name}
-                </span>
-                <div className="text-xs text-[var(--text-muted)] mt-0.5">
-                  Question {currentTurnIndex + 1} of {sampleTurns.length}
-                </div>
+        <div className="space-y-6">
+          {/* Top Status Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)]">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)]">
+                <BookOpen className="w-4 h-4" />
               </div>
-
-              {/* Badges */}
-              <div className="flex items-center gap-2">
-                <Badge variant="default" className="capitalize">
-                  {currentQuestion?.question_type || sampleTurns[currentTurnIndex]?.question_type} Question
-                </Badge>
-                {repeatedCount === 0 && examinerState === "listening" && (
-                  <Button
-                    onClick={handleRepeatQuestion}
-                    variant="outline"
-                    size="sm"
-                  >
-                    <RotateCcw className="w-3 h-3" />
-                    <span>Repeat Question</span>
-                  </Button>
-                )}
+              <div>
+                <h3 className="text-sm font-semibold">{selectedSubject?.name}</h3>
+                <div className="text-[11px] text-[var(--text-muted)]">
+                  Live Examination • Turn {currentTurnIndex + 1}
+                </div>
               </div>
             </div>
 
-            {/* Central Examiner Orb Container */}
-            <div className="p-8 sm:p-12 rounded-3xl bg-[var(--bg-card)] border border-[var(--border-default)] flex flex-col items-center justify-center min-h-[400px] relative overflow-hidden shadow-xs">
+            <Badge variant="advisory">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Advisory Evaluation Engine Active
+            </Badge>
+          </div>
+
+          {/* Live Error Notification */}
+          {liveError && (
+            <div className="p-4 rounded-xl bg-[var(--error-bg)] border border-[var(--error-border)] flex items-center justify-between text-xs text-[var(--error-text)]">
+              <span>{liveError}</span>
+              <Button size="sm" variant="ghost" onClick={() => setLiveError(null)}>
+                Dismiss
+              </Button>
+            </div>
+          )}
+
+          {/* Main Visual Arena & Spoken Output */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            {/* Visual Centerpiece (AudioOrb) */}
+            <div className="lg:col-span-6 flex flex-col items-center justify-center p-8 rounded-3xl bg-[var(--bg-card)] border border-[var(--border-default)] min-h-[380px] space-y-6">
               <AudioOrb state={examinerState} audioLevel={audioLevel} />
 
-              {/* Active Spoken Question Card */}
-              {examinerState !== "idle" && (
-                <div className="mt-6 p-6 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] max-w-xl text-center space-y-2 shadow-xs animate-in fade-in duration-300">
-                  <div className="text-[11px] font-semibold text-[var(--accent-primary)] uppercase tracking-wider flex items-center justify-center gap-1.5">
-                    <Sparkles className="w-3 h-3" />
-                    Examiner Question ({currentQuestion?.topic || sampleTurns[currentTurnIndex]?.topic})
+              <div className="text-center space-y-1">
+                <div className="text-xs font-semibold uppercase tracking-wider text-[var(--accent-primary)]">
+                  {examinerState === "examiner_speaking" && "Examiner Asking Question"}
+                  {examinerState === "listening" && "Listening to Your Answer"}
+                  {examinerState === "processing" && "Evaluating Rubric & Evidence"}
+                  {examinerState === "completed" && "Viva Examination Complete"}
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)]">
+                  {examinerState === "listening" && "Speak clearly into your microphone"}
+                  {examinerState === "processing" && "Analyzing answer grounding and prosodic dynamics..."}
+                </div>
+              </div>
+            </div>
+
+            {/* Question Card & Live Speech Output */}
+            <div className="lg:col-span-6 space-y-4">
+              <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-4">
+                <div className="flex items-center justify-between">
+                  <Badge variant="eyebrow">
+                    Question #{currentTurnIndex + 1} • {currentQuestion?.topic || "Topic"}
+                  </Badge>
+                  <button
+                    onClick={handleRepeatQuestion}
+                    disabled={repeatedCount >= 1 || examinerState !== "listening"}
+                    className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Repeat Question ({1 - repeatedCount} left)
+                  </button>
+                </div>
+
+                <div className="font-editorial text-xl sm:text-2xl font-normal leading-relaxed text-[var(--text-primary)]">
+                  "{currentQuestion?.question_text || "Preparing your next grounded question..."}"
+                </div>
+
+                {/* Candidate Live Transcription Output */}
+                <div className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
+                    <span>Your Spoken Answer:</span>
+                    {examinerState === "listening" && (
+                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        Listening
+                      </span>
+                    )}
                   </div>
-                  <p className="font-editorial text-lg sm:text-xl font-normal text-[var(--text-primary)] leading-relaxed">
-                    "{currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text}"
+                  <p className="text-xs text-[var(--text-secondary)] italic min-h-[44px]">
+                    {currentTranscript ? `"${currentTranscript}"` : "(Awaiting speech input...)"}
                   </p>
                 </div>
-              )}
-            </div>
 
-            {/* Live Student Response & Captions Bar */}
-            {examinerState === "listening" && (
-              <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-focus)] space-y-3 shadow-md animate-in fade-in duration-200">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-[var(--accent-primary)]">
-                    <Mic className="w-4 h-4 animate-pulse" />
-                    Live Captions (Speaking in Your Own Words)
-                  </div>
-                  <span className="text-[11px] text-[var(--text-muted)]">Speak clearly into microphone</span>
-                </div>
-
-                <div className="min-h-[60px] p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] italic">
-                  {currentTranscript ? `"${currentTranscript}"` : "Listening for your spoken explanation..."}
-                </div>
-
-                <div className="flex justify-end gap-2 pt-1">
+                {/* Control Actions */}
+                <div className="flex items-center justify-between pt-2">
                   <Button
-                    onClick={handleSubmitAnswer}
-                    variant="primary"
-                    size="md"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (wsClientRef.current) wsClientRef.current.sendEndSession();
+                      setExaminerState("completed");
+                    }}
                   >
-                    <span>Finish & Submit Answer</span>
-                    <ArrowRight className="w-4 h-4 ml-1" />
+                    End Session
                   </Button>
+
+                  {examinerState === "listening" && (
+                    <Button size="sm" onClick={handleSubmitAnswer}>
+                      Submit Answer
+                      <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                    </Button>
+                  )}
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right Sidebar: Graded Turns History & Rubric Breakdown */}
-          <div className="lg:col-span-4 space-y-4">
-            <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] space-y-4 shadow-xs">
-              <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
-                <Layers className="w-4 h-4 text-[var(--accent-primary)]" />
-                Viva Voce Progress
-              </h3>
-
-              <div className="space-y-3 max-h-[550px] overflow-y-auto pr-1">
-                {turns.length === 0 ? (
-                  <div className="text-center py-12 text-xs text-[var(--text-muted)] leading-relaxed">
-                    Graded answers and rubric breakdowns will appear here after each question turn.
-                  </div>
-                ) : (
-                  turns.map((t) => (
-                    <div
-                      key={t.id}
-                      className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-2.5"
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-[var(--text-primary)]">
-                          Turn #{t.turn_number}: {t.topic}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-lg bg-[var(--bg-card)] text-[var(--text-primary)] font-bold border border-[var(--border-default)] text-xs">
-                          {t.score_0_10}/10
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-[var(--text-secondary)] italic line-clamp-2">
-                        "{t.transcript}"
-                      </p>
-
-                      {t.rubric_breakdown && (
-                        <div className="grid grid-cols-2 gap-1.5 text-[10px] bg-[var(--bg-card)] p-2.5 rounded-lg text-[var(--text-secondary)] border border-[var(--border-default)]">
-                          <div>Correctness: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.correctness}</span></div>
-                          <div>Completeness: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.completeness}</span></div>
-                          <div>Clarity: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.clarity}</span></div>
-                          <div>Depth: <span className="font-semibold text-[var(--text-primary)]">{t.rubric_breakdown.depth}</span></div>
-                        </div>
-                      )}
-
-                      <div className="text-[11px] text-[var(--text-secondary)] border-t border-[var(--border-default)] pt-2">
-                        <span className="font-semibold text-[var(--text-primary)]">Feedback: </span>
-                        {t.feedback}
-                      </div>
-                    </div>
-                  ))
-                )}
               </div>
             </div>
           </div>
+
+          {/* Turn Progression History */}
+          {turns.length > 0 && (
+            <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xs space-y-4">
+              <h3 className="font-editorial text-lg font-normal">Completed Turn Feedback</h3>
+              <div className="space-y-3">
+                {turns.map((t, i) => (
+                  <div
+                    key={i}
+                    className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-2"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-[var(--text-primary)]">
+                        Turn #{t.turn_number}: {t.topic}
+                      </span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        {t.score_0_10}/10
+                      </span>
+                    </div>
+                    <p className="text-xs text-[var(--text-secondary)] italic">"{t.transcript}"</p>
+                    <p className="text-xs text-[var(--text-muted)]">{t.feedback}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Mic Check & Consent Modal */}
+      {/* Microphone Check Modal */}
       <MicCheckModal
         isOpen={isMicModalOpen}
-        onConsentAndProceed={handleProceedAfterConsent}
         onCancel={() => setIsMicModalOpen(false)}
-        subjectName={selectedSubject?.name || "Viva Examination"}
+        onConsentAndProceed={handleProceedAfterConsent}
+        subjectName={selectedSubject?.name || "Viva Voce"}
       />
     </div>
   );

@@ -38,6 +38,12 @@ export default function TeacherDashboardPage() {
   const [filterFlag, setFilterFlag] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
+  // UI Status & Error States
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
   // Grade & Flag Override Modal
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [overrideScore, setOverrideScore] = useState<number>(8.5);
@@ -52,6 +58,8 @@ export default function TeacherDashboardPage() {
   }, []);
 
   const loadData = async () => {
+    setIsLoading(true);
+    setLoadError(null);
     try {
       const [subjList, sessList] = await Promise.all([
         api.listSubjects(),
@@ -67,133 +75,145 @@ export default function TeacherDashboardPage() {
         setSelectedSession(sessList[0]);
         setTeacherNotes(sessList[0].teacher_notes || "");
       }
-    } catch {
-      // Demo teacher preview data adhering to realistic course evaluation
-      const demoSubjects: Subject[] = [
-        {
-          id: "cs301",
-          name: "Operating Systems & Concurrency",
-          code: "CS301",
-          description: "Deadlocks, CPU Scheduling, Virtual Memory, Concurrency Primitives",
-          teacher_id: "teacher-1",
-          document_count: 3,
-        },
-      ];
+    } catch (err: any) {
+      if (isDemoMode) {
+        // Explicit Demo Mode preview data
+        const demoSubjects: Subject[] = [
+          {
+            id: "cs301",
+            name: "Operating Systems & Concurrency",
+            code: "CS301",
+            description: "Deadlocks, CPU Scheduling, Virtual Memory, Concurrency Primitives",
+            teacher_id: "teacher-1",
+            document_count: 3,
+          },
+        ];
 
-      const demoSessions: VivaSession[] = [
-        {
-          id: "sess-ada",
-          student_id: "s-1",
-          student_name: "Ada Lovelace",
-          subject_id: "cs301",
-          subject_name: "Operating Systems & Concurrency",
-          subject_code: "CS301",
-          status: "completed",
-          recording_consent: true,
-          total_score: 9.1,
-          overall_authenticity_likelihood: "low",
-          overall_authenticity_confidence: 0.94,
-          overall_authenticity_reasons: [
-            "Conversational pause rate matches natural spontaneous baseline (280ms mean pause)",
-            "Synthesized novel analogies for circular wait not found in course textbook",
-            "Prosodic variation indicates unrehearsed genuine cognitive synthesis",
-          ],
-          teacher_notes: "Strong conceptual grasp of mutual exclusion and memory barriers. Articulate responses under follow-up probing.",
-          created_at: new Date().toISOString(),
-          turns: [
-            {
-              id: "t-1",
-              turn_number: 1,
-              question_type: "conceptual",
-              topic: "Deadlocks",
-              question_text: "What are Coffman's four conditions for deadlock?",
-              transcript: "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait. If any single one of these conditions is prevented, a deadlock cannot form in the system.",
-              score_0_10: 9.4,
-              authenticity_likelihood: "low",
-              authenticity_confidence: 0.95,
-              authenticity_reasons: [
-                "Natural prosodic pitch variability and spontaneous cadence",
-                "Spontaneous hesitation at technical terms indicating live recall",
-              ],
-              feedback: "Flawless enumeration with precise understanding of deadlock prevention.",
-            },
-            {
-              id: "t-2",
-              turn_number: 2,
-              question_type: "probe",
-              topic: "Banker's Algorithm",
-              question_text: "In your own words, why is Banker's algorithm impractical in general-purpose operating systems?",
-              transcript: "Because it requires processes to declare their maximum resource claim upfront. In modern operating systems like Linux, processes dynamically allocate heap memory and thread handles, so future resource requirements are fundamentally unpredictable.",
-              score_0_10: 8.8,
-              authenticity_likelihood: "low",
-              authenticity_confidence: 0.92,
-              authenticity_reasons: [
-                "Zero verbatim overlap with uploaded lecture slides",
-                "Natural sentence restarts and self-correction",
-              ],
-              feedback: "Insightful practical consideration cited regarding Linux dynamic memory allocations.",
-            },
-            {
-              id: "t-3",
-              turn_number: 3,
-              question_type: "application",
-              topic: "Virtual Memory",
-              question_text: "How does the Translation Lookaside Buffer (TLB) mitigate address translation overhead?",
-              transcript: "A full page table lookup requires two memory accesses per virtual reference. The TLB acts as a high-speed associative hardware cache for virtual-to-physical translations, giving typical hit rates above 95% and near single-cycle translation.",
-              score_0_10: 9.0,
-              authenticity_likelihood: "low",
-              authenticity_confidence: 0.96,
-              authenticity_reasons: [
-                "Direct synthesis of concepts without script reading cadence",
-              ],
-              feedback: "Accurate physical memory breakdown and cache hierarchy explanation.",
-            },
-          ],
-        },
-        {
-          id: "sess-bob",
-          student_id: "s-2",
-          student_name: "Robert Smith",
-          subject_id: "cs301",
-          subject_name: "Operating Systems & Concurrency",
-          subject_code: "CS301",
-          status: "completed",
-          recording_consent: true,
-          total_score: 6.4,
-          overall_authenticity_likelihood: "medium",
-          overall_authenticity_confidence: 0.78,
-          overall_authenticity_reasons: [
-            "High 4-gram verbatim overlap (42%) with Silberschatz chapter 7 textbook excerpt",
-            "Atypical rhythmic pacing with prolonged reading pauses at line breaks",
-            "Monotone vocal fundamental frequency across complex technical clauses",
-          ],
-          teacher_notes: "Advisory review recommended. Student answered accurately but vocal cadences match scripted note reading.",
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-          turns: [
-            {
-              id: "t-b1",
-              turn_number: 1,
-              question_type: "conceptual",
-              topic: "Race Conditions",
-              question_text: "Define a critical section and describe how hardware test-and-set instructions provide mutual exclusion.",
-              transcript: "A critical section is a segment of code in which a process may be changing common variables, updating a table, or writing a file. The test-and-set instruction executes atomically to set the lock variable to true and return its prior value.",
-              score_0_10: 6.8,
-              authenticity_likelihood: "medium",
-              authenticity_confidence: 0.81,
-              authenticity_reasons: [
-                "Verbatim overlap with textbook definition section 5.2",
-                "Periodic breath pause matching document paragraphing",
-              ],
-              feedback: "Accurate textbook definition given, but lacked spontaneous reasoning when pressed.",
-            },
-          ],
-        },
-      ];
+        const demoSessions: VivaSession[] = [
+          {
+            id: "sess-ada",
+            student_id: "s-1",
+            student_name: "Ada Lovelace",
+            subject_id: "cs301",
+            subject_name: "Operating Systems & Concurrency",
+            subject_code: "CS301",
+            status: "completed",
+            recording_consent: true,
+            total_score: 9.1,
+            overall_authenticity_likelihood: "low",
+            overall_authenticity_confidence: 0.94,
+            overall_authenticity_reasons: [
+              "Conversational pause rate matches natural spontaneous baseline (280ms mean pause)",
+              "Synthesized novel analogies for circular wait not found in course textbook",
+              "Prosodic variation indicates unrehearsed genuine cognitive synthesis",
+            ],
+            teacher_notes: "Strong conceptual grasp of mutual exclusion and memory barriers. Articulate responses under follow-up probing.",
+            created_at: new Date().toISOString(),
+            turns: [
+              {
+                id: "t-1",
+                turn_number: 1,
+                question_type: "conceptual",
+                topic: "Deadlocks",
+                question_text: "What are Coffman's four conditions for deadlock?",
+                transcript: "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait. If any single one of these conditions is prevented, a deadlock cannot form in the system.",
+                score_0_10: 9.4,
+                authenticity_likelihood: "low",
+                authenticity_confidence: 0.95,
+                authenticity_reasons: [
+                  "Natural prosodic pitch variability and spontaneous cadence",
+                  "Spontaneous hesitation at technical terms indicating live recall",
+                ],
+                feedback: "Flawless enumeration with precise understanding of deadlock prevention.",
+              },
+              {
+                id: "t-2",
+                turn_number: 2,
+                question_type: "probe",
+                topic: "Banker's Algorithm",
+                question_text: "In your own words, why is Banker's algorithm impractical in general-purpose operating systems?",
+                transcript: "Because it requires processes to declare their maximum resource claim upfront. In modern operating systems like Linux, processes dynamically allocate heap memory and thread handles, so future resource requirements are fundamentally unpredictable.",
+                score_0_10: 8.8,
+                authenticity_likelihood: "low",
+                authenticity_confidence: 0.92,
+                authenticity_reasons: [
+                  "Zero verbatim overlap with uploaded lecture slides",
+                  "Natural sentence restarts and self-correction",
+                ],
+                feedback: "Insightful practical consideration cited regarding Linux dynamic memory allocations.",
+              },
+              {
+                id: "t-3",
+                turn_number: 3,
+                question_type: "application",
+                topic: "Virtual Memory",
+                question_text: "How does the Translation Lookaside Buffer (TLB) mitigate address translation overhead?",
+                transcript: "A full page table lookup requires two memory accesses per virtual reference. The TLB acts as a high-speed associative hardware cache for virtual-to-physical translations, giving typical hit rates above 95% and near single-cycle translation.",
+                score_0_10: 9.0,
+                authenticity_likelihood: "low",
+                authenticity_confidence: 0.96,
+                authenticity_reasons: [
+                  "Direct synthesis of concepts without script reading cadence",
+                ],
+                feedback: "Accurate physical memory breakdown and cache hierarchy explanation.",
+              },
+            ],
+          },
+          {
+            id: "sess-bob",
+            student_id: "s-2",
+            student_name: "Robert Smith",
+            subject_id: "cs301",
+            subject_name: "Operating Systems & Concurrency",
+            subject_code: "CS301",
+            status: "completed",
+            recording_consent: true,
+            total_score: 6.4,
+            overall_authenticity_likelihood: "medium",
+            overall_authenticity_confidence: 0.78,
+            overall_authenticity_reasons: [
+              "High 4-gram verbatim overlap (42%) with Silberschatz chapter 7 textbook excerpt",
+              "Atypical rhythmic pacing with prolonged reading pauses at line breaks",
+              "Monotone vocal fundamental frequency across complex technical clauses",
+            ],
+            teacher_notes: "Advisory review recommended. Student answered accurately but vocal cadences match scripted note reading.",
+            created_at: new Date(Date.now() - 86400000).toISOString(),
+            turns: [
+              {
+                id: "t-b1",
+                turn_number: 1,
+                question_type: "conceptual",
+                topic: "Race Conditions",
+                question_text: "Define a critical section and describe how hardware test-and-set instructions provide mutual exclusion.",
+                transcript: "A critical section is a segment of code in which a process may be changing common variables, updating a table, or writing a file. The test-and-set instruction executes atomically to set the lock variable to true and return its prior value.",
+                score_0_10: 6.8,
+                authenticity_likelihood: "medium",
+                authenticity_confidence: 0.81,
+                authenticity_reasons: [
+                  "Verbatim overlap with textbook definition section 5.2",
+                  "Periodic breath pause matching document paragraphing",
+                ],
+                feedback: "Accurate textbook definition given, but lacked spontaneous reasoning when pressed.",
+              },
+            ],
+          },
+        ];
 
-      setSubjects(demoSubjects);
-      setSessions(demoSessions);
-      setSelectedSession(demoSessions[0]);
-      setTeacherNotes(demoSessions[0].teacher_notes || "");
+        setSubjects(demoSubjects);
+        setSessions(demoSessions);
+        setSelectedSession(demoSessions[0]);
+        setTeacherNotes(demoSessions[0].teacher_notes || "");
+      } else {
+        setSessions([]);
+        setSubjects([]);
+        setSelectedSession(null);
+        setLoadError(
+          err?.message ||
+            "Unable to connect to VivaIQ server. Please verify the backend is running and that you are logged in as a teacher."
+        );
+      }
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -201,38 +221,42 @@ export default function TeacherDashboardPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || subjects.length === 0) return;
+    setActionError(null);
 
     try {
       await api.uploadDocument(subjects[0].id, file);
       const updatedDocs = await api.listDocuments(subjects[0].id);
       setDocuments(updatedDocs);
-    } catch {
-      setDocuments((prev) => [
-        ...prev,
-        {
-          id: `doc-${Date.now()}`,
-          subject_id: subjects[0].id,
-          filename: file.name,
-          file_type: file.name.split(".").pop() || "pdf",
-          file_size_bytes: file.size,
-          chunk_count: 18,
-          ingestion_status: "completed",
-        },
-      ]);
+    } catch (err: any) {
+      if (isDemoMode) {
+        setDocuments((prev) => [
+          ...prev,
+          {
+            id: `doc-${Date.now()}`,
+            subject_id: subjects[0].id,
+            filename: file.name,
+            file_type: file.name.split(".").pop() || "pdf",
+            file_size_bytes: file.size,
+            chunk_count: 18,
+            ingestion_status: "completed",
+          },
+        ]);
+      } else {
+        setActionError(`Document upload failed: ${err?.message || "Ensure the backend is online and document conforms to accepted types (PDF/TXT/MD <= 25MB)."}`);
+      }
     }
   };
 
   // Override Submission
   const handleApplyOverride = async () => {
     if (!selectedSession) return;
+    setActionError(null);
     try {
       await api.overrideScore(selectedSession.id, {
         new_score: overrideScore,
         new_authenticity: overrideFlag,
         reason: overrideReason || "Teacher manual review",
       });
-    } catch {
-      // Local state update
       const updated: VivaSession = {
         ...selectedSession,
         total_score: overrideScore,
@@ -240,22 +264,40 @@ export default function TeacherDashboardPage() {
       };
       setSelectedSession(updated);
       setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setIsOverrideOpen(false);
+    } catch (err: any) {
+      if (isDemoMode) {
+        const updated: VivaSession = {
+          ...selectedSession,
+          total_score: overrideScore,
+          overall_authenticity_likelihood: overrideFlag as any,
+        };
+        setSelectedSession(updated);
+        setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+        setIsOverrideOpen(false);
+      } else {
+        setActionError(`Failed to apply score override: ${err?.message || "Server error"}`);
+      }
     }
-    setIsOverrideOpen(false);
   };
 
   // Save Teacher Notes
   const handleSaveNotes = async () => {
     if (!selectedSession) return;
     setIsSavingNotes(true);
+    setActionError(null);
     try {
       await api.updateTeacherNotes(selectedSession.id, teacherNotes);
       setNotesSavedSuccess(true);
       setTimeout(() => setNotesSavedSuccess(false), 2500);
-    } catch {
-      setSelectedSession((prev) => (prev ? { ...prev, teacher_notes: teacherNotes } : null));
-      setNotesSavedSuccess(true);
-      setTimeout(() => setNotesSavedSuccess(false), 2500);
+    } catch (err: any) {
+      if (isDemoMode) {
+        setSelectedSession((prev) => (prev ? { ...prev, teacher_notes: teacherNotes } : null));
+        setNotesSavedSuccess(true);
+        setTimeout(() => setNotesSavedSuccess(false), 2500);
+      } else {
+        setActionError(`Failed to save notes: ${err?.message || "Server error"}`);
+      }
     } finally {
       setIsSavingNotes(false);
     }
@@ -325,6 +367,40 @@ export default function TeacherDashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* Status & Error Alerts */}
+      {loadError && (
+        <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-400 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
+            <span>{loadError}</span>
+          </div>
+          <Button size="sm" variant="outline" onClick={loadData} className="ml-4 shrink-0 text-xs">
+            Retry Connection
+          </Button>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-400 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-500" />
+            <span>{actionError}</span>
+          </div>
+          <button onClick={() => setActionError(null)} className="ml-2 font-bold hover:opacity-80">
+            ✕
+          </button>
+        </div>
+      )}
+
+      {isDemoMode && (
+        <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 text-xs flex items-center gap-2">
+          <Info className="w-4 h-4 text-blue-500 shrink-0" />
+          <span>
+            <strong className="font-semibold">Demo Mode Active:</strong> Operating in sandbox mode with illustrative course evaluations.
+          </span>
+        </div>
+      )}
 
       {/* SESSIONS TAB */}
       {activeTab === "sessions" && (

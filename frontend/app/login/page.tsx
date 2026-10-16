@@ -46,12 +46,12 @@ export default function LoginPage() {
   const handleDemoFill = (role: "teacher" | "student") => {
     if (role === "teacher") {
       setEmail("teacher@vivaiq.edu");
-      setPassword("TeacherPass123!");
-      handleLogin(undefined, "teacher@vivaiq.edu", "TeacherPass123!");
+      setPassword("teacher123");
+      handleLogin(undefined, "teacher@vivaiq.edu", "teacher123");
     } else {
-      setEmail("alex@student.edu");
-      setPassword("StudentPass123!");
-      handleLogin(undefined, "alex@student.edu", "StudentPass123!");
+      setEmail("student@vivaiq.edu");
+      setPassword("student123");
+      handleLogin(undefined, "student@vivaiq.edu", "student123");
     }
   };
 

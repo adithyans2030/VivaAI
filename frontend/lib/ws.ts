@@ -43,10 +43,13 @@ export class VivaWebSocketClient {
   private maxReconnectAttempts = 5;
   private isExplicitlyClosed = false;
 
-  constructor(sessionId: string, token: string, handlers: WSEventHandlers = {}) {
+  constructor(sessionId: string, authSecret: string, handlers: WSEventHandlers = {}, options: { isTicket?: boolean } = {}) {
     const wsBase = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/api/v1/ws";
-    this.url = `${wsBase}/sessions/${sessionId}?token=${token}`;
-    this.token = token;
+    const authQuery = options.isTicket || authSecret.startsWith("wst_")
+      ? `ticket=${authSecret}`
+      : `token=${authSecret}`;
+    this.url = `${wsBase}/sessions/${sessionId}?${authQuery}`;
+    this.token = authSecret;
     this.handlers = handlers;
   }
 
