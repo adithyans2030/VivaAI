@@ -187,9 +187,11 @@ class VivaSessionOrchestrator:
             word_timestamps=word_timestamps,
             onset_latency_seconds=onset_latency_seconds,
             audio_duration_seconds=audio_duration_seconds,
+            audio_path=audio_path,
             question_type=turn.question_type,
             core_avg_score=core_avg,
             turn_score=turn.score_0_10,
+            warmup_baseline=session.warmup_baseline,
         )
 
         turn.authenticity_likelihood = auth_report.likelihood
@@ -200,12 +202,15 @@ class VivaSessionOrchestrator:
             "signals": {k: v.model_dump() for k, v in auth_report.signals.items()},
         }
 
-        # If warmup turn, record acoustic baseline in session
+        # If warmup turn, record acoustic baseline in session for subsequent turns
         if turn.turn_number == 1 and not session.warmup_baseline:
+            pitch_sig = auth_report.signals.get("pitch_f0_variance")
             session.warmup_baseline = {
-                "onset_latency": onset_latency_seconds,
-                "duration": audio_duration_seconds,
-                "disfluency_rate": auth_report.signals.get("disfluency_rate", {}).raw_value if "disfluency_rate" in auth_report.signals else 2.0,
+                "onset_latency": onset_latency_seconds or 1.5,
+                "duration": audio_duration_seconds or 5.0,
+                "disfluency_rate": auth_report.signals.get("disfluency_rate").raw_value if "disfluency_rate" in auth_report.signals else 2.0,
+                "pause_ratio": auth_report.signals.get("pause_distribution").raw_value if "pause_distribution" in auth_report.signals else 0.15,
+                "pitch_std": pitch_sig.raw_value if pitch_sig and pitch_sig.is_available else None,
             }
 
         await db.commit()
@@ -264,6 +269,7 @@ class VivaSessionOrchestrator:
                 "confidence": session.overall_authenticity_confidence,
                 "reasons": session.overall_authenticity_reasons,
                 "is_advisory": True,
+                "disclaimer": "Advisory signal to support teacher judgment — not an automated accusation.",
             },
             "turn_summaries": [
                 {

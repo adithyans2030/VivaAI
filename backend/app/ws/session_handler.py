@@ -276,6 +276,7 @@ async def viva_session_websocket(
                         word_timestamps=[w.model_dump() for w in stt_result.words],
                         audio_path=str(audio_path),
                         audio_duration_seconds=stt_result.duration_seconds,
+                        onset_latency_seconds=payload.get("onset_latency_seconds"),
                     )
 
                 # Dispatch feedback event to student UI
@@ -293,6 +294,7 @@ async def viva_session_websocket(
                                 "confidence": auth_report.confidence,
                                 "reasons": auth_report.reasons,
                                 "is_advisory": True,
+                                "disclaimer": auth_report.disclaimer,
                             },
                         },
                     },

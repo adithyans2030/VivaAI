@@ -104,3 +104,70 @@ def test_session_aggregation(analyzer: AuthenticityAnalyzer):
     assert isinstance(agg, AuthenticityReport)
     assert agg.is_advisory is True
     assert agg.likelihood in (AuthenticityLikelihood.LOW, AuthenticityLikelihood.MEDIUM)
+    assert "Advisory signal to support teacher judgment" in agg.disclaimer
+
+
+def test_warmup_baseline_calibration(analyzer: AuthenticityAnalyzer):
+    """Verify that a naturally low-filler speaker is calibrated against their warmup baseline."""
+    # Student spoke cleanly without fillers in warmup
+    baseline = {"disfluency_rate": 0.5, "onset_latency": 1.2, "pause_ratio": 0.1}
+
+    clean_text = (
+        "Operating systems use the Translation Lookaside Buffer as a high speed associative cache "
+        "to translate virtual page numbers into physical frame numbers and avoid memory lookups."
+    )
+
+    # Without baseline, low fillers might trigger flag
+    report_with_baseline = analyzer.analyze_turn(
+        turn_number=2,
+        student_text=clean_text,
+        reference_chunks=[],
+        warmup_baseline=baseline,
+        question_type="conceptual",
+    )
+    # Calibrated disfluency threshold should prevent flagging
+    disf_signal = report_with_baseline.signals["disfluency_rate"]
+    assert disf_signal.threshold < analyzer.disfluency_min_expected
+    assert disf_signal.flagged is False
+
+
+def test_latency_thresholds(analyzer: AuthenticityAnalyzer):
+    """Verify superhuman onset latency (< 0.3s) and prolonged search delay (> 8.0s)."""
+    # 1. Superhuman rapid onset
+    rep_fast = analyzer.analyze_turn(
+        turn_number=2,
+        student_text="Mutual exclusion prevents simultaneous access to critical section variables.",
+        reference_chunks=[],
+        onset_latency_seconds=0.15,
+        question_type="conceptual",
+    )
+    assert rep_fast.signals["onset_latency"].flagged is True
+    assert "superhuman" in rep_fast.signals["onset_latency"].explanation.lower()
+
+    # 2. Prolonged search delay
+    rep_slow = analyzer.analyze_turn(
+        turn_number=2,
+        student_text="Mutual exclusion prevents simultaneous access to critical section variables.",
+        reference_chunks=[],
+        onset_latency_seconds=9.5,
+        question_type="conceptual",
+    )
+    assert rep_slow.signals["onset_latency"].flagged is True
+    assert "prolonged" in rep_slow.signals["onset_latency"].explanation.lower()
+
+
+def test_unavailable_acoustic_signal_omitted(analyzer: AuthenticityAnalyzer):
+    """Verify that unavailable acoustic pitch signal does not contribute to composite score."""
+    report = analyzer.analyze_turn(
+        turn_number=2,
+        student_text="Page replacement algorithms like LRU choose victim frames.",
+        reference_chunks=[],
+        audio_path="nonexistent_audio_path_12345.wav",
+    )
+    pitch_sig = report.signals.get("pitch_f0_variance")
+    assert pitch_sig is not None
+    assert pitch_sig.is_available is False
+    assert pitch_sig.flagged is False
+    assert report.is_advisory is True
+    assert "Advisory signal to support teacher judgment" in report.disclaimer
+

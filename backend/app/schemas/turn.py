@@ -29,6 +29,8 @@ class AuthenticityResult(BaseModel):
     confidence: float = Field(0.0, ge=0.0, le=1.0)
     reasons: List[str] = []
     metrics: Dict[str, Any] = {}
+    is_advisory: bool = True
+    disclaimer: str = "Advisory signal to support teacher judgment — not an automated accusation."
 
 
 class TurnResponse(BaseModel):
