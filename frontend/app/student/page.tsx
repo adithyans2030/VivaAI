@@ -37,6 +37,13 @@ export default function StudentVivaPage() {
   const [currentTranscript, setCurrentTranscript] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
   const [repeatedCount, setRepeatedCount] = useState(0);
+  const [currentQuestion, setCurrentQuestion] = useState<{
+    turn_id: string;
+    turn_number: number;
+    question_text: string;
+    topic?: string;
+    question_type?: string;
+  } | null>(null);
 
   // Questions simulation script if offline/demo
   const sampleTurns: Partial<Turn>[] = [
@@ -227,12 +234,45 @@ export default function StudentVivaPage() {
 
     // Connect WebSocket
     const token = (typeof window !== "undefined" && localStorage.getItem("vivaiq_token")) || "demo-token";
+    let isLiveSession = false;
+
     const ws = new VivaWebSocketClient(activeSessionId, token, {
+      onOpen: () => {
+        isLiveSession = true;
+        ws.sendReady();
+      },
+      onQuestion: (q) => {
+        isLiveSession = true;
+        setCurrentQuestion(q);
+        setCurrentTurnIndex(q.turn_number - 1);
+        setRepeatedCount(0);
+        speakQuestion(q.question_text);
+      },
       onTranscript: (text, words) => {
         if (text) setCurrentTranscript(text);
       },
+      onFeedback: (fb) => {
+        const completedTurn: Turn = {
+          id: fb.turn_id,
+          turn_number: currentTurnIndex + 1,
+          question_text: currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text || "",
+          question_type: currentQuestion?.question_type || sampleTurns[currentTurnIndex]?.question_type || "conceptual",
+          topic: currentQuestion?.topic || sampleTurns[currentTurnIndex]?.topic || "General",
+          transcript: currentTranscript.trim(),
+          score_0_10: fb.score_0_10,
+          rubric_breakdown: fb.rubric,
+          feedback: fb.feedback,
+          authenticity_likelihood: fb.authenticity?.likelihood || "low",
+          authenticity_confidence: fb.authenticity?.confidence || 0.9,
+          authenticity_reasons: fb.authenticity?.reasons || [],
+        };
+        setTurns((prev) => [...prev, completedTurn]);
+      },
+      onSessionComplete: (summary) => {
+        setExaminerState("completed");
+      },
       onStateChange: (st) => {
-        if (st === "processing" || st === "examiner_speaking" || st === "listening") {
+        if (st === "processing" || st === "examiner_speaking" || st === "listening" || st === "completed") {
           setExaminerState(st as any);
         }
       },
@@ -240,8 +280,12 @@ export default function StudentVivaPage() {
     ws.connect();
     wsClientRef.current = ws;
 
-    // Launch Question 1
-    launchTurn(0);
+    // Fallback: If live backend WebSocket doesn't fire question within 1.5s, launch sample turn 0
+    setTimeout(() => {
+      if (!isLiveSession) {
+        launchTurn(0);
+      }
+    }, 1500);
   };
 
   const launchTurn = (index: number) => {
@@ -261,48 +305,50 @@ export default function StudentVivaPage() {
     stopListening();
     setExaminerState("processing");
 
-    const turnId = `turn-${currentTurnIndex + 1}`;
+    const turnId = currentQuestion?.turn_id || `turn-${currentTurnIndex + 1}`;
     // Notify server via WebSocket that speech finished
     wsClientRef.current?.sendSpeechEnd(turnId);
 
     const answer = currentTranscript.trim() || "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait.";
 
-    // Simulate server grading & authenticity processing
+    // Fallback timer if running offline / demo mode
     setTimeout(() => {
-      const mockRubric = {
-        correctness: 8.5,
-        completeness: 8.0,
-        clarity: 9.0,
-        depth: 7.5,
-      };
+      if (examinerState === "processing") {
+        const mockRubric = {
+          correctness: 8.5,
+          completeness: 8.0,
+          clarity: 9.0,
+          depth: 7.5,
+        };
 
-      const completedTurn: Turn = {
-        id: `turn-${currentTurnIndex + 1}`,
-        turn_number: currentTurnIndex + 1,
-        question_text: sampleTurns[currentTurnIndex].question_text || "",
-        question_type: sampleTurns[currentTurnIndex].question_type || "conceptual",
-        topic: sampleTurns[currentTurnIndex].topic || "General",
-        transcript: answer,
-        score_0_10: currentTurnIndex === 0 ? 9.0 : 8.2,
-        rubric_breakdown: mockRubric,
-        feedback: "Sound foundational understanding demonstrated with clear articulation.",
-        authenticity_likelihood: currentTurnIndex === 3 ? "low" : "low",
-        authenticity_confidence: 0.88,
-        authenticity_reasons: [
-          "Conversational pause frequency consistent with spontaneous reasoning",
-          "Low n-gram verbatim overlap with textbook reference chunks",
-          "Natural prosodic pitch variability across clauses",
-        ],
-      };
+        const completedTurn: Turn = {
+          id: `turn-${currentTurnIndex + 1}`,
+          turn_number: currentTurnIndex + 1,
+          question_text: currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text || "",
+          question_type: currentQuestion?.question_type || sampleTurns[currentTurnIndex]?.question_type || "conceptual",
+          topic: currentQuestion?.topic || sampleTurns[currentTurnIndex]?.topic || "General",
+          transcript: answer,
+          score_0_10: currentTurnIndex === 0 ? 9.0 : 8.2,
+          rubric_breakdown: mockRubric,
+          feedback: "Sound foundational understanding demonstrated with clear articulation.",
+          authenticity_likelihood: currentTurnIndex === 3 ? "low" : "low",
+          authenticity_confidence: 0.88,
+          authenticity_reasons: [
+            "Conversational pause frequency consistent with spontaneous reasoning",
+            "Low n-gram verbatim overlap with textbook reference chunks",
+            "Natural prosodic pitch variability across clauses",
+          ],
+        };
 
-      setTurns((prev) => [...prev, completedTurn]);
+        setTurns((prev) => [...prev, completedTurn]);
 
-      if (currentTurnIndex + 1 < sampleTurns.length) {
-        launchTurn(currentTurnIndex + 1);
-      } else {
-        setExaminerState("completed");
+        if (currentTurnIndex + 1 < sampleTurns.length) {
+          launchTurn(currentTurnIndex + 1);
+        } else {
+          setExaminerState("completed");
+        }
       }
-    }, 2200);
+    }, 4500);
   };
 
   // Repeat question
@@ -310,7 +356,9 @@ export default function StudentVivaPage() {
     if (repeatedCount >= 1) return;
     setRepeatedCount((c) => c + 1);
     stopListening();
-    speakQuestion(sampleTurns[currentTurnIndex]?.question_text || "");
+    const turnId = currentQuestion?.turn_id || `turn-${currentTurnIndex + 1}`;
+    wsClientRef.current?.sendRepeatQuestion(turnId);
+    speakQuestion(currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text || "");
   };
 
   return (
@@ -385,7 +433,7 @@ export default function StudentVivaPage() {
               {/* Badges */}
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 capitalize">
-                  {sampleTurns[currentTurnIndex]?.question_type} Question
+                  {currentQuestion?.question_type || sampleTurns[currentTurnIndex]?.question_type} Question
                 </span>
                 {repeatedCount === 0 && examinerState === "listening" && (
                   <button
@@ -408,10 +456,10 @@ export default function StudentVivaPage() {
                 <div className="mt-4 p-5 rounded-2xl bg-slate-900/90 border border-slate-700/80 max-w-xl text-center space-y-2 shadow-xl animate-in fade-in duration-300">
                   <div className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider flex items-center justify-center gap-1">
                     <Sparkles className="w-3 h-3" />
-                    Examiner Question ({sampleTurns[currentTurnIndex]?.topic})
+                    Examiner Question ({currentQuestion?.topic || sampleTurns[currentTurnIndex]?.topic})
                   </div>
                   <p className="text-sm font-medium text-slate-100 leading-relaxed">
-                    "{sampleTurns[currentTurnIndex]?.question_text}"
+                    "{currentQuestion?.question_text || sampleTurns[currentTurnIndex]?.question_text}"
                   </p>
                 </div>
               )}
