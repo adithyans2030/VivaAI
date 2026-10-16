@@ -21,6 +21,7 @@ from app.services.audio_conversion import transcode_to_wav
 from app.services.grader import get_grader_service
 from app.services.session_state import get_viva_orchestrator
 from app.services.stt import get_stt_provider
+from app.services.tts import get_tts_provider
 from app.ws.connection_manager import manager
 
 router = APIRouter(tags=["websocket"])
@@ -321,6 +322,11 @@ async def viva_session_websocket(
                                 "payload": {"state": "examiner_speaking", "turn_number": active_turn.turn_number},
                             },
                         )
+                        # Server-side TTS synthesis (WS-7: EdgeTTS / Piper / Mock / Browser)
+                        tts_service = get_tts_provider()
+                        tts_audio = await tts_service.synthesize_audio(active_turn.question_text)
+                        audio_b64 = base64.b64encode(tts_audio).decode("utf-8") if tts_audio else None
+
                         await manager.send_json(
                             session_id,
                             {
@@ -331,6 +337,7 @@ async def viva_session_websocket(
                                     "question_text": active_turn.question_text,
                                     "topic": active_turn.topic,
                                     "question_type": active_turn.question_type,
+                                    "audio_b64": audio_b64,
                                 },
                             },
                         )
@@ -379,6 +386,12 @@ async def viva_session_websocket(
                             "payload": {"state": "examiner_speaking", "turn_number": turn.turn_number},
                         },
                     )
+
+                    # Re-trigger server TTS on repeat
+                    tts_service = get_tts_provider()
+                    tts_audio = await tts_service.synthesize_audio(turn.question_text)
+                    audio_b64 = base64.b64encode(tts_audio).decode("utf-8") if tts_audio else None
+
                     await manager.send_json(
                         session_id,
                         {
@@ -390,6 +403,7 @@ async def viva_session_websocket(
                                 "topic": turn.topic,
                                 "question_type": turn.question_type,
                                 "is_repeat": True,
+                                "audio_b64": audio_b64,
                             },
                         },
                     )

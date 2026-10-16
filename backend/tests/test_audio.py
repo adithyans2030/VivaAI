@@ -98,6 +98,15 @@ async def test_audio_streaming_endpoint(student_user: User, teacher_user: User):
                 headers={"Authorization": f"Bearer {teacher_token}"},
             )
             assert res_404.status_code == 404
+
+            # 5. Test session turn audio route alias (WS-7)
+            res_alias = client.get(
+                f"/api/v1/sessions/{session_id}/turns/{turn_id}/audio",
+                headers={"Authorization": f"Bearer {teacher_token}"},
+            )
+            assert res_alias.status_code == 200
+            assert res_alias.headers["content-type"] == "audio/wav"
+            assert len(res_alias.content) > 0
     finally:
         app.dependency_overrides.clear()
         if audio_path.exists():
@@ -107,3 +116,24 @@ async def test_audio_streaming_endpoint(student_user: User, teacher_user: User):
                 session_dir.rmdir()
             except Exception:
                 pass
+
+
+@pytest.mark.asyncio
+async def test_tts_providers():
+    """Verify MockTTS, BrowserTTS, and EdgeTTS providers."""
+    from app.services.tts import BrowserTTSProvider, EdgeTTSProvider, MockTTSProvider
+
+    # 1. Browser TTS returns None (client uses browser speech synthesis)
+    browser_tts = BrowserTTSProvider()
+    assert await browser_tts.synthesize_audio("Hello") is None
+
+    # 2. Mock TTS returns valid sine wave WAV
+    mock_tts = MockTTSProvider()
+    wav_bytes = await mock_tts.synthesize_audio("Test question")
+    assert wav_bytes is not None
+    assert wav_bytes[:4] == b"RIFF"
+
+    # 3. EdgeTTS instance initializes properly
+    edge_tts_inst = EdgeTTSProvider(voice="en-US-JennyNeural")
+    assert edge_tts_inst.voice == "en-US-JennyNeural"
+

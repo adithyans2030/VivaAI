@@ -193,3 +193,22 @@ async def generate_websocket_ticket(
     return {"ticket": ticket, "expires_in": 30}
 
 
+@router.get("/{session_id}/turns/{turn_id}/audio")
+async def get_session_turn_audio(
+    session_id: str,
+    turn_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current_user: Annotated[User, Depends(get_current_user)],
+):
+    """Stream candidate audio recording for teacher review with auth and range request support (WS-7)."""
+    from app.api.audio import get_turn_audio
+
+    return await get_turn_audio(
+        session_id=session_id,
+        turn_id=turn_id,
+        db=db,
+        current_user=current_user,
+    )
+
+
+

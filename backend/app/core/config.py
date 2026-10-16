@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     WHISPER_BEAM_SIZE: int = 1
 
     # TTS Configuration
-    TTS_PROVIDER: Literal["browser", "piper", "kokoro", "mock"] = "browser"
+    TTS_PROVIDER: Literal["browser", "piper", "kokoro", "edge", "mock"] = "browser"
     PIPER_MODEL_PATH: str = ""
 
     # RAG & Embeddings
