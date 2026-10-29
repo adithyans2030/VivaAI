@@ -1,6 +1,7 @@
 """Subject management routes."""
 
 from typing import Annotated, List
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,11 +77,7 @@ async def get_subject(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> Subject:
     """Get subject details along with documents."""
-    stmt = (
-        select(Subject)
-        .where(Subject.id == subject_id)
-        .options(selectinload(Subject.documents))
-    )
+    stmt = select(Subject).where(Subject.id == subject_id).options(selectinload(Subject.documents))
     subject = (await db.execute(stmt)).scalar_one_or_none()
     if not subject:
         raise HTTPException(

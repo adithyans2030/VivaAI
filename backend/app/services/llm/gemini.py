@@ -1,11 +1,10 @@
 """Gemini LLM Provider for production cloud execution."""
 
-import json
 from typing import Any, AsyncGenerator, Dict, Optional
+
 import httpx
 
 from app.core.config import settings
-from app.core.logging import logger
 from app.services.llm.base import BaseLLMProvider
 
 
@@ -56,9 +55,7 @@ class GeminiProvider(BaseLLMProvider):
             text = data["candidates"][0]["content"]["parts"][0]["text"]
             return self.clean_json_string(text)
 
-    async def generate_stream(
-        self, prompt: str, system: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
+    async def generate_stream(self, prompt: str, system: Optional[str] = None) -> AsyncGenerator[str, None]:
         # Simple chunk emission
         full_text = await self.generate_text(prompt, system)
         words = full_text.split(" ")

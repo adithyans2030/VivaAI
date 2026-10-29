@@ -1,8 +1,8 @@
 """Database engine, session management, and base models."""
 
+import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
-import uuid
 
 from sqlalchemy import DateTime, String
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine

@@ -5,7 +5,6 @@ from httpx import AsyncClient
 from pydantic import ValidationError
 
 from app.core.config import Settings
-from app.services.stt import MockSTTProvider, WhisperSTTProvider, get_stt_provider
 
 
 def test_production_rejects_placeholder_secret_key(monkeypatch):
@@ -31,9 +30,7 @@ def test_mock_providers_rejected_without_testing_or_demo_mode(monkeypatch):
 
     with pytest.raises(ValidationError) as exc_info:
         Settings()
-    assert "STT_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True" in str(
-        exc_info.value
-    )
+    assert "STT_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True" in str(exc_info.value)
 
 
 def test_mock_llm_rejected_without_testing_or_demo_mode(monkeypatch):
@@ -46,9 +43,7 @@ def test_mock_llm_rejected_without_testing_or_demo_mode(monkeypatch):
 
     with pytest.raises(ValidationError) as exc_info:
         Settings()
-    assert "LLM_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True" in str(
-        exc_info.value
-    )
+    assert "LLM_PROVIDER='mock' is only permitted when ENVIRONMENT='testing' or DEMO_MODE=True" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

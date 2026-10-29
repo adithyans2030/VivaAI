@@ -9,6 +9,7 @@ os.environ["STT_PROVIDER"] = "mock"
 os.environ["LLM_PROVIDER"] = "mock"
 
 from typing import AsyncGenerator
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -44,9 +45,9 @@ def anyio_backend():
 @pytest.fixture(autouse=True)
 async def setup_test_db() -> AsyncGenerator[None, None]:
     """Create all tables before each test and enforce mock providers for fast, deterministic CI."""
-    from app.core.config import settings
     import app.services.llm as llm_module
     import app.services.stt as stt_module
+    from app.core.config import settings
 
     prev_env = settings.ENVIRONMENT
     prev_demo = settings.DEMO_MODE
@@ -143,4 +144,3 @@ async def admin_user(db_session: AsyncSession) -> User:
     await db_session.commit()
     await db_session.refresh(admin)
     return admin
-

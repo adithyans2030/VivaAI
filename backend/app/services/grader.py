@@ -1,9 +1,8 @@
 """AI Grader service for multi-dimensional rubric scoring, repair prompting, and prompt-injection defense."""
 
-from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pathlib import Path
+from typing import Any, List, Optional
 
 from app.core.logging import logger
 from app.schemas.turn import GraderResult, RubricBreakdown

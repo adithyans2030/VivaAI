@@ -2,24 +2,25 @@
 
 import csv
 import io
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any, Dict
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, require_role
 from app.core.database import get_db
 from app.models.audit import AuditLog, ScoreOverride
-from app.models.session import AuthenticityLikelihood, VivaSession
+from app.models.session import VivaSession
 from app.models.turn import Turn
 from app.models.user import User, UserRole
 from app.schemas.report import (
-    ClassAnalyticsSummary,
     SessionReport,
     TeacherNoteUpdate,
     TeacherOverrideRequest,
 )
+from app.schemas.turn import TurnResponse
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -65,7 +66,7 @@ async def get_session_report(
         authenticity_confidence=session.overall_authenticity_confidence,
         authenticity_reasons=session.overall_authenticity_reasons or [],
         teacher_notes=session.teacher_notes,
-        turns=session.turns,
+        turns=[TurnResponse.model_validate(t) for t in session.turns],
         analytics=session.final_report or {},
     )
 
@@ -205,31 +206,35 @@ async def export_session_csv(
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "Turn #",
-        "Topic",
-        "Question",
-        "Student Transcript",
-        "Score (0-10)",
-        "Authenticity Likelihood",
-        "Authenticity Confidence",
-        "Authenticity Reasons",
-        "Feedback",
-    ])
+    writer.writerow(
+        [
+            "Turn #",
+            "Topic",
+            "Question",
+            "Student Transcript",
+            "Score (0-10)",
+            "Authenticity Likelihood",
+            "Authenticity Confidence",
+            "Authenticity Reasons",
+            "Feedback",
+        ]
+    )
 
     for turn in session.turns:
         reasons_str = "; ".join(turn.authenticity_reasons or [])
-        writer.writerow([
-            turn.turn_number,
-            turn.topic,
-            turn.question_text,
-            turn.transcript or "",
-            turn.score_0_10 or "",
-            turn.authenticity_likelihood.value,
-            f"{turn.authenticity_confidence:.2f}" if turn.authenticity_confidence is not None else "",
-            reasons_str,
-            turn.feedback or "",
-        ])
+        writer.writerow(
+            [
+                turn.turn_number,
+                turn.topic,
+                turn.question_text,
+                turn.transcript or "",
+                turn.score_0_10 or "",
+                turn.authenticity_likelihood.value,
+                f"{turn.authenticity_confidence:.2f}" if turn.authenticity_confidence is not None else "",
+                reasons_str,
+                turn.feedback or "",
+            ]
+        )
 
     csv_content = output.getvalue()
     return Response(

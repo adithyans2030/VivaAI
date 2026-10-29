@@ -1,10 +1,10 @@
 """Tests for AI Examiner question formulation, Grader scoring, and anti-injection defenses."""
 
 import pytest
+
 from app.schemas.turn import GraderResult
 from app.services.examiner import ExaminerService, GeneratedQuestion
 from app.services.grader import GraderService
-from app.services.llm import get_llm_provider
 from app.services.llm.mock import MockLLMProvider
 
 
@@ -109,6 +109,7 @@ async def test_grader_rubric_consistency():
 @pytest.mark.asyncio
 async def test_grader_json_repair_and_failure():
     """Verify repair prompt is attempted on JSON error; if repair fails, grading_status='failed' with score None."""
+
     class FailingLLMProvider:
         async def generate_json(self, prompt: str):
             raise ValueError("Invalid JSON response from LLM")
@@ -123,4 +124,3 @@ async def test_grader_json_repair_and_failure():
     assert result.grading_status == "failed"
     assert result.score_0_10 is None
     assert "teacher review required" in result.feedback.lower()
-

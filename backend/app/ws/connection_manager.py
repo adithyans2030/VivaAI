@@ -1,11 +1,11 @@
 """WebSocket connection manager for handling active viva sessions and backpressure."""
 
 import asyncio
-from typing import Dict, Optional, Set
+from typing import Dict
+
 from fastapi import WebSocket
 
 from app.core.logging import logger
-
 
 # 5 minutes of 16 kHz 16-bit mono audio is 5 * 60 * 16000 * 2 = 9,600,000 bytes (~9.6 MB)
 MAX_AUDIO_BUFFER_BYTES = 9_600_000
@@ -65,11 +65,11 @@ class SessionConnectionManager:
         """Append streamed candidate audio bytes to session buffer with size cap enforcement."""
         if session_id not in self._audio_buffers:
             self._audio_buffers[session_id] = bytearray()
-        
+
         current_len = len(self._audio_buffers[session_id])
         if current_len + len(chunk) > MAX_AUDIO_BUFFER_BYTES:
             raise BufferError("AUDIO_BUFFER_OVERFLOW")
-        
+
         self._audio_buffers[session_id].extend(chunk)
 
     def consume_audio_buffer(self, session_id: str) -> bytes:
@@ -93,4 +93,3 @@ class SessionConnectionManager:
 
 
 manager = SessionConnectionManager()
-

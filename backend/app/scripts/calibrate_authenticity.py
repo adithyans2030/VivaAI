@@ -7,13 +7,12 @@ transcripts (spontaneous vs. reading_notes) to ensure balanced calibration.
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.services.authenticity import AuthenticityAnalyzer, AuthenticityLikelihood
 
-
 # Benchmark samples: ground truth labeled data
-DEFAULT_BENCHMARK_DATA = [
+DEFAULT_BENCHMARK_DATA: List[Dict[str, Any]] = [
     {
         "id": "sample-spontaneous-1",
         "ground_truth": "spontaneous",
@@ -63,7 +62,7 @@ DEFAULT_BENCHMARK_DATA = [
 ]
 
 
-def run_calibration(benchmark_path: Path = None) -> Dict[str, Any]:
+def run_calibration(benchmark_path: Optional[Path] = None) -> Dict[str, Any]:
     """Run calibration analysis and output metrics."""
     analyzer = AuthenticityAnalyzer()
 
@@ -97,13 +96,15 @@ def run_calibration(benchmark_path: Path = None) -> Dict[str, Any]:
         else:
             fn += 1
 
-        results.append({
-            "id": item["id"],
-            "ground_truth": item["ground_truth"],
-            "predicted_likelihood": report.likelihood.value,
-            "risk_score": report.composite_risk_score_0_1,
-            "reasons": report.reasons,
-        })
+        results.append(
+            {
+                "id": item["id"],
+                "ground_truth": item["ground_truth"],
+                "predicted_likelihood": report.likelihood.value,
+                "risk_score": report.composite_risk_score_0_1,
+                "reasons": report.reasons,
+            }
+        )
 
     total = len(data)
     precision = tp / max(1, tp + fp)

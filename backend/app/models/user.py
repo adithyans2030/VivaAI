@@ -1,15 +1,17 @@
 """User model."""
 
 from enum import Enum
-from typing import List, TYPE_CHECKING
-from sqlalchemy import Boolean, Enum as SQLEnum, String
+from typing import TYPE_CHECKING, List
+
+from sqlalchemy import Boolean, String
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
-    from app.models.subject import Subject
     from app.models.session import VivaSession
+    from app.models.subject import Subject
 
 
 class UserRole(str, Enum):

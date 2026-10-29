@@ -1,18 +1,16 @@
 """Tests for WS-4 WebSocket session handler fixes: buffer capping, invalid turn rejection, empty audio defense, repeat limit, and recovery state."""
 
-import base64
 from typing import AsyncGenerator
+
 import pytest
 from starlette.testclient import TestClient
 
+import app.ws.session_handler as ws_handler
 from app.core.database import get_db
 from app.core.security import create_access_token
 from app.main import app
 from app.models.user import User
-from app.services.grader import GraderService
-from app.services.llm.mock import MockLLMProvider
-from app.ws.connection_manager import MAX_AUDIO_BUFFER_BYTES, manager
-import app.ws.session_handler as ws_handler
+from app.ws.connection_manager import manager
 from tests.conftest import test_async_session
 
 
@@ -41,11 +39,6 @@ def test_ws4_handler_edge_cases(
 ):
     """Verify empty audio, invalid base64, and reconnect recovery state handling."""
     monkeypatch.setattr(ws_handler, "async_session_factory", test_async_session)
-    monkeypatch.setattr(
-        ws_handler,
-        "get_grader_service",
-        lambda: GraderService(llm_provider=MockLLMProvider()),
-    )
 
     async def override_get_db() -> AsyncGenerator:
         async with test_async_session() as session:

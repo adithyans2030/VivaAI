@@ -1,12 +1,13 @@
 """Viva Session API routes."""
 
 from typing import Annotated, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user, require_role
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.session import AuthenticityLikelihood, SessionStatus, VivaSession
 from app.models.subject import Subject
@@ -144,6 +145,7 @@ async def get_session_recovery_state(
 ):
     """Retrieve lightweight state payload for student reconnection recovery."""
     from app.services.session_state import get_viva_orchestrator
+
     orchestrator = get_viva_orchestrator()
     try:
         return await orchestrator.get_recovery_state(db, session_id)
@@ -209,6 +211,3 @@ async def get_session_turn_audio(
         db=db,
         current_user=current_user,
     )
-
-
-

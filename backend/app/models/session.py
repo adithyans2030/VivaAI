@@ -1,17 +1,19 @@
 """VivaSession model."""
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-from sqlalchemy import Boolean, Enum as SQLEnum, Float, ForeignKey, JSON, String, Text
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, String, Text
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.models.audit import ScoreOverride
     from app.models.subject import Subject
     from app.models.turn import Turn
-    from app.models.audit import ScoreOverride
+    from app.models.user import User
 
 
 class SessionStatus(str, Enum):
@@ -51,7 +53,7 @@ class VivaSession(Base):
         index=True,
     )
     recording_consent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    
+
     # Baseline acoustic / speech metrics captured during warmup
     warmup_baseline: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
@@ -64,7 +66,7 @@ class VivaSession(Base):
     )
     overall_authenticity_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     overall_authenticity_reasons: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    
+
     # Teacher review & overrides
     teacher_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     final_report: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)

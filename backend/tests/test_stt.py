@@ -1,6 +1,7 @@
 """Tests for STT service and word-level timestamps."""
 
 import pytest
+
 from app.services.stt import MockSTTProvider, STTResult, get_stt_provider
 
 

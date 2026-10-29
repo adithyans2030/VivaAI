@@ -1,7 +1,7 @@
 """Authentication and User Management routes."""
 
-from datetime import timedelta
 from typing import Annotated, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
@@ -191,9 +191,7 @@ async def logout(
 
 
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(
-    current_user: Annotated[User, Depends(get_current_user)]
-) -> User:
+async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]) -> User:
     """Get the current authenticated user's profile."""
     return current_user
 
@@ -205,6 +203,7 @@ async def export_user_data(
 ) -> dict:
     """GDPR-style student data export endpoint (WS-2.5)."""
     from sqlalchemy.orm import selectinload
+
     from app.models.session import VivaSession
 
     stmt = (
@@ -216,25 +215,29 @@ async def export_user_data(
 
     sessions_export = []
     for s in sessions:
-        sessions_export.append({
-            "session_id": s.id,
-            "subject_name": s.subject.name if s.subject else None,
-            "status": s.status.value,
-            "total_score": s.total_score,
-            "authenticity_likelihood": s.overall_authenticity_likelihood.value if s.overall_authenticity_likelihood else None,
-            "created_at": s.created_at.isoformat(),
-            "turns": [
-                {
-                    "turn_number": t.turn_number,
-                    "topic": t.topic,
-                    "question_text": t.question_text,
-                    "transcript": t.transcript,
-                    "score_0_10": t.score_0_10,
-                    "feedback": t.feedback,
-                }
-                for t in s.turns
-            ],
-        })
+        sessions_export.append(
+            {
+                "session_id": s.id,
+                "subject_name": s.subject.name if s.subject else None,
+                "status": s.status.value,
+                "total_score": s.total_score,
+                "authenticity_likelihood": s.overall_authenticity_likelihood.value
+                if s.overall_authenticity_likelihood
+                else None,
+                "created_at": s.created_at.isoformat(),
+                "turns": [
+                    {
+                        "turn_number": t.turn_number,
+                        "topic": t.topic,
+                        "question_text": t.question_text,
+                        "transcript": t.transcript,
+                        "score_0_10": t.score_0_10,
+                        "feedback": t.feedback,
+                    }
+                    for t in s.turns
+                ],
+            }
+        )
 
     return {
         "user_profile": {
@@ -255,7 +258,7 @@ async def delete_user_account_data(
 ) -> dict:
     """Student data deletion endpoint: permanently purges audio, sessions, and account (WS-2.5)."""
     import shutil
-    from sqlalchemy.orm import selectinload
+
     from app.models.session import VivaSession
 
     # Delete audio files
@@ -272,4 +275,3 @@ async def delete_user_account_data(
     await db.commit()
 
     return {"message": "All user data, audio recordings, and examination history permanently purged"}
-

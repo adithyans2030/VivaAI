@@ -1,6 +1,7 @@
 """Mock LLM Provider for unit testing and offline CI execution."""
 
 from typing import Any, AsyncGenerator, Dict, Optional
+
 from app.services.llm.base import BaseLLMProvider
 
 
@@ -72,9 +73,7 @@ class MockLLMProvider(BaseLLMProvider):
 
         return {"result": "ok", "mock": True}
 
-    async def generate_stream(
-        self, prompt: str, system: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
+    async def generate_stream(self, prompt: str, system: Optional[str] = None) -> AsyncGenerator[str, None]:
         tokens = ["What ", "are ", "the ", "four ", "conditions ", "for ", "deadlock?"]
         for token in tokens:
             yield token

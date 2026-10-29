@@ -1,11 +1,11 @@
 """Text-to-Speech (TTS) service layer supporting EdgeTTS, Piper, Kokoro, and browser fallback."""
 
-from abc import ABC, abstractmethod
 import asyncio
-from typing import AsyncGenerator, Optional
-import wave
 import io
 import math
+import wave
+from abc import ABC, abstractmethod
+from typing import AsyncGenerator, Optional
 
 from app.core.config import settings
 from app.core.logging import logger
@@ -23,7 +23,7 @@ class BaseTTSProvider(ABC):
         return b"".join(chunks) if chunks else None
 
     @abstractmethod
-    async def synthesize_stream(self, text: str) -> AsyncGenerator[bytes, None]:
+    def synthesize_stream(self, text: str) -> AsyncGenerator[bytes, None]:
         """Yield synthesized audio byte chunks in streaming fashion."""
         pass
 
@@ -79,6 +79,7 @@ class EdgeTTSProvider(BaseTTSProvider):
     async def synthesize_audio(self, text: str) -> Optional[bytes]:
         try:
             import edge_tts
+
             communicate = edge_tts.Communicate(text, self.voice)
             buffer = io.BytesIO()
             async for chunk in communicate.stream():
@@ -93,6 +94,7 @@ class EdgeTTSProvider(BaseTTSProvider):
     async def synthesize_stream(self, text: str) -> AsyncGenerator[bytes, None]:
         try:
             import edge_tts
+
             communicate = edge_tts.Communicate(text, self.voice)
             async for chunk in communicate.stream():
                 if chunk["type"] == "audio":

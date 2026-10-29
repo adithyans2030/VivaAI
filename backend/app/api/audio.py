@@ -1,6 +1,7 @@
 """Audio streaming endpoint for student turn recordings with strict access control (WS-2.5)."""
 
 from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select

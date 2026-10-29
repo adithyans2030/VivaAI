@@ -1,7 +1,8 @@
 """Audit logging and score override models."""
 
-from typing import Any, Dict, Optional, TYPE_CHECKING
-from sqlalchemy import Float, ForeignKey, JSON, String, Text
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+from sqlalchemy import JSON, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base

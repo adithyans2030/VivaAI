@@ -1,7 +1,9 @@
 """Turn model representing a single viva question/answer interaction."""
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-from sqlalchemy import Boolean, Enum as SQLEnum, Float, ForeignKey, Integer, JSON, String, Text
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -21,7 +23,7 @@ class Turn(Base):
         index=True,
     )
     turn_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    
+
     # Question details
     question_text: Mapped[str] = mapped_column(Text, nullable=False)
     question_type: Mapped[str] = mapped_column(String(50), default="conceptual", nullable=False)

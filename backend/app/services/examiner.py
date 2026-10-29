@@ -2,12 +2,12 @@
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel
 
-from app.core.config import settings
 from app.core.logging import logger
 from app.services.llm import get_llm_provider
-from app.services.rag import SourceReference, get_rag_store
+from app.services.rag import get_rag_store
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -100,9 +100,7 @@ class ExaminerService:
                 prompt_version=f"{self.prompt_version}.0",
             )
 
-        q_type = self.determine_next_question_type(
-            turn_number, current_running_score, previous_question_types or []
-        )
+        q_type = self.determine_next_question_type(turn_number, current_running_score, previous_question_types or [])
 
         # Handle warmup turn
         if q_type == "warmup":

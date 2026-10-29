@@ -2,16 +2,14 @@
 
 import base64
 from typing import AsyncGenerator
-import pytest
+
 from starlette.testclient import TestClient
 
+import app.ws.session_handler as ws_handler
 from app.core.database import get_db
 from app.core.security import create_access_token
 from app.main import app
 from app.models.user import User
-from app.services.grader import GraderService
-from app.services.llm.mock import MockLLMProvider
-import app.ws.session_handler as ws_handler
 from tests.conftest import test_async_session
 
 
@@ -22,11 +20,6 @@ def test_websocket_viva_flow(
 ):
     # Route async_session_factory to test in-memory database
     monkeypatch.setattr(ws_handler, "async_session_factory", test_async_session)
-    monkeypatch.setattr(
-        ws_handler,
-        "get_grader_service",
-        lambda: GraderService(llm_provider=MockLLMProvider()),
-    )
 
     # Route get_db dependency to test in-memory database
     async def override_get_db() -> AsyncGenerator:
@@ -141,16 +134,20 @@ def test_websocket_viva_flow(
             # 6.6 Stream valid audio chunks
             dummy_pcm = b"\x00\x00" * 400
             chunk_b64 = base64.b64encode(dummy_pcm).decode("utf-8")
-            ws.send_json({
-                "type": "audio_chunk",
-                "payload": {"turn_id": turn_id, "chunk_index": 0, "audio_b64": chunk_b64},
-            })
+            ws.send_json(
+                {
+                    "type": "audio_chunk",
+                    "payload": {"turn_id": turn_id, "chunk_index": 0, "audio_b64": chunk_b64},
+                }
+            )
 
             # Send speech_end with valid turn_id
-            ws.send_json({
-                "type": "speech_end",
-                "payload": {"turn_id": turn_id, "duration_ms": 1200},
-            })
+            ws.send_json(
+                {
+                    "type": "speech_end",
+                    "payload": {"turn_id": turn_id, "duration_ms": 1200},
+                }
+            )
 
             # Expect state_change to processing with real turn_number
             msg1 = ws.receive_json()
@@ -176,4 +173,3 @@ def test_websocket_viva_flow(
             assert msg3["payload"]["total_score"] > 0
 
     app.dependency_overrides.clear()
-

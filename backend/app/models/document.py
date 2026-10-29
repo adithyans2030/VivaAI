@@ -1,8 +1,10 @@
 """Document model for RAG knowledge sources."""
 
 from enum import Enum
-from typing import Optional, TYPE_CHECKING
-from sqlalchemy import Enum as SQLEnum, ForeignKey, Integer, String, Text
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base

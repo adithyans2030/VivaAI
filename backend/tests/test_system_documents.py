@@ -1,6 +1,7 @@
 """Tests for system health endpoints, document uploading, and error cases."""
 
 import io
+
 import pytest
 from httpx import AsyncClient
 

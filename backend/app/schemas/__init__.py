@@ -1,12 +1,12 @@
 """Schemas package."""
 
-from app.schemas.token import Token, TokenPayload, RefreshTokenRequest
-from app.schemas.user import UserBase, UserCreate, UserLogin, UserUpdate, UserResponse
-from app.schemas.subject import SubjectBase, SubjectCreate, SubjectUpdate, SubjectResponse, SubjectDetailResponse
-from app.schemas.document import DocumentBase, DocumentResponse, DocumentIngestionStatusResponse
-from app.schemas.turn import RubricBreakdown, GraderResult, AuthenticityResult, TurnResponse
-from app.schemas.session import SessionCreate, ConsentUpdate, SessionResponse, SessionDetailResponse
-from app.schemas.report import TeacherOverrideRequest, TeacherNoteUpdate, SessionReport, ClassAnalyticsSummary
+from app.schemas.document import DocumentBase, DocumentIngestionStatusResponse, DocumentResponse
+from app.schemas.report import ClassAnalyticsSummary, SessionReport, TeacherNoteUpdate, TeacherOverrideRequest
+from app.schemas.session import ConsentUpdate, SessionCreate, SessionDetailResponse, SessionResponse
+from app.schemas.subject import SubjectBase, SubjectCreate, SubjectDetailResponse, SubjectResponse, SubjectUpdate
+from app.schemas.token import RefreshTokenRequest, Token, TokenPayload
+from app.schemas.turn import AuthenticityResult, GraderResult, RubricBreakdown, TurnResponse
+from app.schemas.user import UserBase, UserCreate, UserLogin, UserResponse, UserUpdate
 
 __all__ = [
     "Token",

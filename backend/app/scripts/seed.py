@@ -1,6 +1,7 @@
 """Database seed script for demo accounts and initial subject."""
 
 import asyncio
+
 from app.core.database import async_session_factory, init_db
 from app.core.security import get_password_hash
 from app.models.subject import Subject

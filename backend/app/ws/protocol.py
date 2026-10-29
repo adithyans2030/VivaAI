@@ -1,7 +1,8 @@
 """Typed Pydantic WebSocket event protocol."""
 
-from typing import Any, Dict, List, Literal, Optional, Union
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Literal, Optional
+
+from pydantic import BaseModel
 
 from app.services.stt import STTWord
 

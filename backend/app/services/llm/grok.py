@@ -1,6 +1,7 @@
 """Grok (xAI) LLM Provider."""
 
 from typing import Any, AsyncGenerator, Dict, Optional
+
 import httpx
 
 from app.core.config import settings
@@ -37,9 +38,7 @@ class GrokProvider(BaseLLMProvider):
         text = await self.generate_text(prompt, system)
         return self.clean_json_string(text)
 
-    async def generate_stream(
-        self, prompt: str, system: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
+    async def generate_stream(self, prompt: str, system: Optional[str] = None) -> AsyncGenerator[str, None]:
         text = await self.generate_text(prompt, system)
         for chunk in text.split(" "):
             yield chunk + " "

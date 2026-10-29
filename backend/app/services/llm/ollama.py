@@ -2,10 +2,10 @@
 
 import json
 from typing import Any, AsyncGenerator, Dict, Optional
+
 import httpx
 
 from app.core.config import settings
-from app.core.logging import logger
 from app.services.llm.base import BaseLLMProvider
 
 
@@ -51,9 +51,7 @@ class OllamaProvider(BaseLLMProvider):
             raw_text = data.get("response", "")
             return self.clean_json_string(raw_text)
 
-    async def generate_stream(
-        self, prompt: str, system: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
+    async def generate_stream(self, prompt: str, system: Optional[str] = None) -> AsyncGenerator[str, None]:
         payload: Dict[str, Any] = {
             "model": self.model,
             "prompt": prompt,

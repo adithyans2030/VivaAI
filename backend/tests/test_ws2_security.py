@@ -7,12 +7,13 @@
 """
 
 import io
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import consume_ws_ticket, create_access_token, decode_token
+from app.core.security import consume_ws_ticket, create_access_token
 from app.models.session import SessionStatus, VivaSession
 from app.models.subject import Subject
 from app.models.user import User, UserRole
@@ -239,7 +240,6 @@ async def test_audio_access_control(
     db_session.add(sess)
     await db_session.commit()
 
-    student_token = create_access_token(subject=student_user.id, role="student")
     other_student_token = create_access_token(subject=other_student.id, role="student")
     unassigned_teacher_token = create_access_token(subject=unassigned_teacher.id, role="teacher")
 

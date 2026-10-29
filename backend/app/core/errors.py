@@ -1,6 +1,7 @@
 """VivaIQ Application Exceptions and Error Handlers."""
 
 from typing import Any, Dict, Optional
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 

@@ -1,11 +1,12 @@
 """Tests for RAG document parsing, chunking, and grounded source citation retrieval."""
 
 from pathlib import Path
+
 import pytest
+
 from app.services.rag import (
     DocumentChunk,
     chunk_document_content,
-    clean_text,
     extract_text_from_file,
     get_rag_store,
 )

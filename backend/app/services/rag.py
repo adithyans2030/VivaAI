@@ -4,11 +4,11 @@ Supports PDF, DOCX, TXT, and Markdown parsing, semantic chunking with overlap,
 vector embedding, and grounded source citation retrieval.
 """
 
-from abc import ABC, abstractmethod
 import math
-from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Tuple, Union
+from abc import ABC, abstractmethod
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -50,11 +50,11 @@ class DocumentChunk(BaseModel):
 # ==========================================
 
 
-def extract_text_from_pdf(file_path: Path) -> List[Tuple[int, str]]:
+def extract_text_from_pdf(file_path: Path) -> List[Tuple[Optional[int], str]]:
     """Extract pages from PDF returning (page_num, page_text)."""
     import pypdf
 
-    pages_text: List[Tuple[int, str]] = []
+    pages_text: List[Tuple[Optional[int], str]] = []
     reader = pypdf.PdfReader(str(file_path))
     for idx, page in enumerate(reader.pages):
         text = page.extract_text() or ""
@@ -177,15 +177,11 @@ def chunk_document_content(
 
 class BaseRAGStore(ABC):
     @abstractmethod
-    async def ingest_document(
-        self, subject_id: str, document_id: str, file_path: Path, filename: str
-    ) -> int:
+    async def ingest_document(self, subject_id: str, document_id: str, file_path: Path, filename: str) -> int:
         pass
 
     @abstractmethod
-    async def retrieve(
-        self, subject_id: str, query: str, top_k: int = 4
-    ) -> RetrievedContext:
+    async def retrieve(self, subject_id: str, query: str, top_k: int = 4) -> RetrievedContext:
         pass
 
     @abstractmethod
@@ -226,9 +222,7 @@ class HybridRAGStore(BaseRAGStore):
         clean_id = subject_id.replace("-", "_")
         return f"subj_{clean_id}"
 
-    async def ingest_document(
-        self, subject_id: str, document_id: str, file_path: Path, filename: str
-    ) -> int:
+    async def ingest_document(self, subject_id: str, document_id: str, file_path: Path, filename: str) -> int:
         """Parse, chunk, and embed a document into the subject's collection."""
         pages_data = extract_text_from_file(file_path)
         chunks = chunk_document_content(subject_id, document_id, filename, pages_data)
@@ -280,9 +274,7 @@ class HybridRAGStore(BaseRAGStore):
 
         return len(chunks)
 
-    async def retrieve(
-        self, subject_id: str, query: str, top_k: Optional[int] = None
-    ) -> RetrievedContext:
+    async def retrieve(self, subject_id: str, query: str, top_k: Optional[int] = None) -> RetrievedContext:
         """Retrieve relevant source chunks for query."""
         k = top_k or settings.TOP_K_RETRIEVAL
         sources: List[SourceReference] = []

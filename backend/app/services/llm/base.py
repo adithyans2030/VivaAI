@@ -1,8 +1,8 @@
 """Base LLM Provider abstract interface."""
 
-from abc import ABC, abstractmethod
 import json
 import re
+from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Dict, Optional
 
 
@@ -20,9 +20,7 @@ class BaseLLMProvider(ABC):
         pass
 
     @abstractmethod
-    async def generate_stream(
-        self, prompt: str, system: Optional[str] = None
-    ) -> AsyncGenerator[str, None]:
+    def generate_stream(self, prompt: str, system: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Generate streaming token chunks."""
         pass
 

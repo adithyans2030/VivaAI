@@ -1,10 +1,9 @@
 """Document management and file upload routes."""
 
-from pathlib import Path
 import re
-import shutil
-from typing import Annotated, List
 import uuid
+from pathlib import Path
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -56,11 +55,7 @@ async def list_subject_documents(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> List[Document]:
     """List all documents for a specific subject."""
-    stmt = (
-        select(Document)
-        .where(Document.subject_id == subject_id)
-        .order_by(Document.created_at.desc())
-    )
+    stmt = select(Document).where(Document.subject_id == subject_id).order_by(Document.created_at.desc())
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -144,8 +139,10 @@ async def upload_document(
     await db.refresh(document)
 
     # Trigger background ingestion
-    from app.services.rag import ingest_document_pipeline
     import asyncio
+
+    from app.services.rag import ingest_document_pipeline
+
     asyncio.create_task(ingest_document_pipeline(document.id))
 
     return document

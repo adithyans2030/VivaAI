@@ -5,15 +5,10 @@ and realistic completed viva voce sessions (authentic vs. note-reading) with aud
 """
 
 import asyncio
-from datetime import datetime, timezone
 import io
-from pathlib import Path
-import struct
-import uuid
 import wave
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import async_session_factory, init_db
@@ -194,7 +189,13 @@ Virtual memory decouples the programmer's view of memory from physical RAM. The 
                     topic="Course Introduction",
                     question_text="Welcome Alex. Could you introduce yourself and tell me what area of operating systems you enjoyed studying most?",
                     transcript="Hi, my name is Alex. I really enjoyed learning about concurrency and process synchronization, especially deadlocks and how threads coordinate.",
-                    word_timestamps=[{"word": "Hi,", "start": 0.5, "end": 0.8}, {"word": "my", "start": 0.8, "end": 1.0}, {"word": "name", "start": 1.0, "end": 1.2}, {"word": "is", "start": 1.2, "end": 1.3}, {"word": "Alex.", "start": 1.3, "end": 1.7}],
+                    word_timestamps=[
+                        {"word": "Hi,", "start": 0.5, "end": 0.8},
+                        {"word": "my", "start": 0.8, "end": 1.0},
+                        {"word": "name", "start": 1.0, "end": 1.2},
+                        {"word": "is", "start": 1.2, "end": 1.3},
+                        {"word": "Alex.", "start": 1.3, "end": 1.7},
+                    ],
                     audio_duration_seconds=5.2,
                     score_0_10=9.0,
                     rubric_breakdown={"correctness": 9.0, "completeness": 9.0, "clarity": 9.5, "depth": 8.5},
@@ -210,7 +211,11 @@ Virtual memory decouples the programmer's view of memory from physical RAM. The 
                     topic="Coffman Conditions",
                     question_text="What are Coffman's four conditions for deadlock?",
                     transcript="Well, so the four conditions are, um, mutual exclusion, meaning only one thread can access a resource. Then hold and wait, where a thread holds a lock while waiting for another. No preemption, and, uh, circular wait.",
-                    word_timestamps=[{"word": "Well,", "start": 1.1, "end": 1.4}, {"word": "so", "start": 1.5, "end": 1.7}, {"word": "the", "start": 1.7, "end": 1.9}],
+                    word_timestamps=[
+                        {"word": "Well,", "start": 1.1, "end": 1.4},
+                        {"word": "so", "start": 1.5, "end": 1.7},
+                        {"word": "the", "start": 1.7, "end": 1.9},
+                    ],
                     audio_duration_seconds=11.4,
                     score_0_10=8.8,
                     rubric_breakdown={"correctness": 9.0, "completeness": 8.5, "clarity": 9.0, "depth": 8.5},
@@ -286,14 +291,20 @@ Virtual memory decouples the programmer's view of memory from physical RAM. The 
                     topic="Coffman Conditions",
                     question_text="What are Coffman's four conditions for deadlock?",
                     transcript="A deadlock state occurs if and only if four necessary conditions hold simultaneously: Mutual Exclusion wherein at least one resource must be held in a non-shareable mode; Hold and Wait where a process must be currently holding at least one resource and requesting additional resources; No Preemption; Circular Wait.",
-                    word_timestamps=[{"word": "A", "start": 0.2, "end": 0.4}, {"word": "deadlock", "start": 0.4, "end": 0.8}],
+                    word_timestamps=[
+                        {"word": "A", "start": 0.2, "end": 0.4},
+                        {"word": "deadlock", "start": 0.4, "end": 0.8},
+                    ],
                     audio_duration_seconds=12.1,
                     score_0_10=9.0,
                     rubric_breakdown={"correctness": 9.5, "completeness": 9.5, "clarity": 8.5, "depth": 7.0},
                     feedback="Textbook definition accurate, but delivery shows reading pattern.",
                     authenticity_likelihood=AuthenticityLikelihood.HIGH,
                     authenticity_confidence=0.88,
-                    authenticity_reasons=["High 4-gram overlap (72%) with course document.", "Zero natural disfluency markers."],
+                    authenticity_reasons=[
+                        "High 4-gram overlap (72%) with course document.",
+                        "Zero natural disfluency markers.",
+                    ],
                 ),
                 Turn(
                     session_id=sess2.id,

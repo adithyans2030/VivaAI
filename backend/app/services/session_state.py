@@ -5,17 +5,17 @@ adaptive question sequencing, reconnect recovery, and end-of-session aggregation
 """
 
 from typing import Any, Dict, List, Optional, Tuple
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.models.session import AuthenticityLikelihood, SessionStatus, VivaSession
-from app.models.subject import Subject
+from app.models.session import SessionStatus, VivaSession
 from app.models.turn import Turn
 from app.services.authenticity import AuthenticityReport, get_authenticity_analyzer
-from app.services.examiner import ExaminerService, GeneratedQuestion, get_examiner_service
+from app.services.examiner import ExaminerService, get_examiner_service
 from app.services.grader import GraderResult, GraderService, get_grader_service
 
 
@@ -69,11 +69,7 @@ class VivaSessionOrchestrator:
 
         # Calculate running score and covered topics
         scored_turns = [t for t in session.turns if t.score_0_10 is not None]
-        avg_score = (
-            sum(t.score_0_10 for t in scored_turns) / len(scored_turns)
-            if scored_turns
-            else 7.0
-        )
+        avg_score = sum(t.score_0_10 or 0.0 for t in scored_turns) / len(scored_turns) if scored_turns else 7.0
         covered_topics = [t.topic for t in session.turns if t.topic]
 
         # Check if previous turn requested a follow-up probe
@@ -155,9 +151,7 @@ class VivaSessionOrchestrator:
         turn.audio_duration_seconds = audio_duration_seconds
 
         # 1. Rubric Grading via LLM with full grounded context injection (WS-6)
-        expected_points = [
-            ref.get("text", "") for ref in (turn.source_references or [])
-        ]
+        expected_points = [ref.get("text", "") for ref in (turn.source_references or [])]
         retrieved_context = "\n\n".join(
             ref.get("text", "") for ref in (turn.source_references or []) if ref.get("text")
         )
@@ -182,11 +176,7 @@ class VivaSessionOrchestrator:
         # 2. Advisory Authenticity Analysis (Strictly non-punitive)
         reference_chunks = [ref.get("text", "") for ref in (turn.source_references or [])]
         core_turns = [t for t in session.turns if t.question_type == "conceptual" and t.score_0_10 is not None]
-        core_avg = (
-            sum(t.score_0_10 for t in core_turns) / len(core_turns)
-            if core_turns
-            else None
-        )
+        core_avg = sum(t.score_0_10 or 0.0 for t in core_turns) / len(core_turns) if core_turns else None
 
         auth_report = self.authenticity_analyzer.analyze_turn(
             turn_number=turn.turn_number,
@@ -213,11 +203,13 @@ class VivaSessionOrchestrator:
         # If warmup turn, record acoustic baseline in session for subsequent turns
         if turn.turn_number == 1 and not session.warmup_baseline:
             pitch_sig = auth_report.signals.get("pitch_f0_variance")
+            disfluency_sig = auth_report.signals.get("disfluency_rate")
+            pause_sig = auth_report.signals.get("pause_distribution")
             session.warmup_baseline = {
                 "onset_latency": onset_latency_seconds or 1.5,
                 "duration": audio_duration_seconds or 5.0,
-                "disfluency_rate": auth_report.signals.get("disfluency_rate").raw_value if "disfluency_rate" in auth_report.signals else 2.0,
-                "pause_ratio": auth_report.signals.get("pause_distribution").raw_value if "pause_distribution" in auth_report.signals else 0.15,
+                "disfluency_rate": disfluency_sig.raw_value if disfluency_sig else 2.0,
+                "pause_ratio": pause_sig.raw_value if pause_sig else 0.15,
                 "pitch_std": pitch_sig.raw_value if pitch_sig and pitch_sig.is_available else None,
             }
 
@@ -236,7 +228,7 @@ class VivaSessionOrchestrator:
 
         scored_turns = [t for t in session.turns if t.score_0_10 is not None]
         if scored_turns:
-            total_score = sum(t.score_0_10 for t in scored_turns) / len(scored_turns)
+            total_score = sum(t.score_0_10 or 0.0 for t in scored_turns) / len(scored_turns)
             session.total_score = round(total_score, 2)
         else:
             session.total_score = 0.0
@@ -246,9 +238,8 @@ class VivaSessionOrchestrator:
         for t in session.turns:
             if t.speech_features and "signals" in t.speech_features:
                 from app.services.authenticity import SignalScore
-                signals_dict = {
-                    k: SignalScore(**v) for k, v in t.speech_features["signals"].items()
-                }
+
+                signals_dict = {k: SignalScore(**v) for k, v in t.speech_features["signals"].items()}
                 turn_reports.append(
                     AuthenticityReport(
                         likelihood=t.authenticity_likelihood,
@@ -335,7 +326,9 @@ class VivaSessionOrchestrator:
                 "turn_number": active_turn.turn_number,
                 "question_text": active_turn.question_text,
                 "question_type": active_turn.question_type,
-            } if active_turn else None,
+            }
+            if active_turn
+            else None,
             "turns_completed": len([t for t in session.turns if t.score_0_10 is not None]),
             "total_turns": len(session.turns),
             "max_questions": settings.MAX_QUESTIONS,

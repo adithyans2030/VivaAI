@@ -4,12 +4,11 @@ Evaluates natural conversational speech vs. scripted / read-aloud responses
 across the 6 advisory signals to establish empirical thresholds and false-positive rates.
 """
 
-import json
-from pathlib import Path
-import sys
-
 # Ensure backend directory is in sys.path
 import os
+import sys
+from pathlib import Path
+
 os.environ.setdefault("ENVIRONMENT", "testing")
 os.environ.setdefault("DEMO_MODE", "true")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -36,7 +35,9 @@ def run_calibration():
             ],
             "latency": 1.4,
             "duration": 9.2,
-            "refs": ["Deadlock occurs when four conditions hold simultaneously: mutual exclusion, hold and wait, no preemption, circular wait."],
+            "refs": [
+                "Deadlock occurs when four conditions hold simultaneously: mutual exclusion, hold and wait, no preemption, circular wait."
+            ],
         },
         {
             "id": "nat_2",
@@ -51,7 +52,9 @@ def run_calibration():
             ],
             "latency": 1.8,
             "duration": 8.0,
-            "refs": ["A Translation Lookaside Buffer is a hardware cache that stores virtual-to-physical address mappings."],
+            "refs": [
+                "A Translation Lookaside Buffer is a hardware cache that stores virtual-to-physical address mappings."
+            ],
         },
     ]
 
@@ -70,7 +73,9 @@ def run_calibration():
             ],
             "latency": 0.15,  # Superhuman rapid onset
             "duration": 6.5,
-            "refs": ["Deadlock occurs when four conditions hold simultaneously: mutual exclusion, hold and wait, no preemption, circular wait. A process may hold allocated resources while awaiting additional resources."],
+            "refs": [
+                "Deadlock occurs when four conditions hold simultaneously: mutual exclusion, hold and wait, no preemption, circular wait. A process may hold allocated resources while awaiting additional resources."
+            ],
         },
         {
             "id": "scr_2",
@@ -82,7 +87,9 @@ def run_calibration():
             ],
             "latency": 0.10,
             "duration": 7.8,
-            "refs": ["A critical section is a segment of code in which a process may be changing common variables, updating a table, or writing a file. Mutual exclusion ensures that when one process executes its critical section no other processes are allowed to execute."],
+            "refs": [
+                "A critical section is a segment of code in which a process may be changing common variables, updating a table, or writing a file. Mutual exclusion ensures that when one process executes its critical section no other processes are allowed to execute."
+            ],
         },
     ]
 
@@ -103,7 +110,9 @@ def run_calibration():
             question_type="conceptual",
         )
         natural_results.append((sample["id"], report))
-        print(f"Sample {sample['id']} (Natural): Likelihood={report.likelihood.value}, Risk={report.composite_risk_score_0_1:.2f}, Conf={report.confidence:.2f}")
+        print(
+            f"Sample {sample['id']} (Natural): Likelihood={report.likelihood.value}, Risk={report.composite_risk_score_0_1:.2f}, Conf={report.confidence:.2f}"
+        )
 
     # Evaluate Scripted
     scripted_results = []
@@ -118,17 +127,21 @@ def run_calibration():
             question_type="conceptual",
         )
         scripted_results.append((sample["id"], report))
-        print(f"Sample {sample['id']} (Scripted): Likelihood={report.likelihood.value}, Risk={report.composite_risk_score_0_1:.2f}, Conf={report.confidence:.2f}")
+        print(
+            f"Sample {sample['id']} (Scripted): Likelihood={report.likelihood.value}, Risk={report.composite_risk_score_0_1:.2f}, Conf={report.confidence:.2f}"
+        )
 
     # Compute False Positive / False Negative Rates
-    false_positives = sum(1 for _, r in natural_results if r.likelihood in (AuthenticityLikelihood.HIGH, AuthenticityLikelihood.MEDIUM))
+    false_positives = sum(
+        1 for _, r in natural_results if r.likelihood in (AuthenticityLikelihood.HIGH, AuthenticityLikelihood.MEDIUM)
+    )
     false_negatives = sum(1 for _, r in scripted_results if r.likelihood == AuthenticityLikelihood.LOW)
 
     fp_rate = (false_positives / len(natural_results)) * 100
     fn_rate = (false_negatives / len(scripted_results)) * 100
 
     print("-" * 60)
-    print(f"Calibration Complete:")
+    print("Calibration Complete:")
     print(f"  Natural Samples: {len(natural_results)} | False Positives: {false_positives} ({fp_rate:.1f}%)")
     print(f"  Scripted Samples: {len(scripted_results)} | False Negatives: {false_negatives} ({fn_rate:.1f}%)")
     print("=" * 60)

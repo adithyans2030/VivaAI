@@ -1,11 +1,10 @@
 """Speech-to-Text (STT) service layer with faster-whisper and word-level timestamps."""
 
-from abc import ABC, abstractmethod
 import asyncio
 import io
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
-import wave
+from typing import List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -31,9 +30,7 @@ class BaseSTTProvider(ABC):
     """Abstract Base Class for Speech-to-Text engines."""
 
     @abstractmethod
-    async def transcribe(
-        self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None
-    ) -> STTResult:
+    async def transcribe(self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None) -> STTResult:
         """Transcribe audio bytes or audio file into text with word timestamps."""
         pass
 
@@ -49,9 +46,7 @@ class MockSTTProvider(BaseSTTProvider):
     def is_model_loaded(self) -> bool:
         return True
 
-    async def transcribe(
-        self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None
-    ) -> STTResult:
+    async def transcribe(self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None) -> STTResult:
         # Calculate approximate duration based on bytes if available
         duration = 3.5
         if isinstance(audio_data, bytes):
@@ -145,15 +140,11 @@ class WhisperSTTProvider(BaseSTTProvider):
                         "Install faster-whisper and torch, or run with DEMO_MODE=true / ENVIRONMENT=testing."
                     )
 
-    async def transcribe(
-        self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None
-    ) -> STTResult:
+    async def transcribe(self, audio_data: Union[bytes, Path, str], initial_prompt: Optional[str] = None) -> STTResult:
         if self._model is None:
             if settings.DEMO_MODE or settings.ENVIRONMENT == "testing":
                 return await MockSTTProvider().transcribe(audio_data, initial_prompt=initial_prompt)
-            raise RuntimeError(
-                "Whisper model is not loaded. Cannot transcribe audio without a valid STT model."
-            )
+            raise RuntimeError("Whisper model is not loaded. Cannot transcribe audio without a valid STT model.")
 
         # Handle in-memory bytes or file path
         if isinstance(audio_data, bytes):

@@ -5,18 +5,18 @@ potential note-reading vs. spontaneous explanation. Strictly advisory;
 zero automated penalties. Flags are for teacher review only.
 """
 
-from dataclasses import dataclass
 import math
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
 from pydantic import BaseModel, Field
 
-from app.core.logging import logger
 from app.models.session import AuthenticityLikelihood
 
 
 class SignalScore(BaseModel):
     """Detailed score for an individual authenticity signal."""
+
     name: str
     raw_value: float
     normalized_score_0_1: float  # 0.0 = highly spontaneous, 1.0 = highly scripted/reading
@@ -29,15 +29,14 @@ class SignalScore(BaseModel):
 
 class AuthenticityReport(BaseModel):
     """Structured advisory authenticity assessment for a turn or session."""
+
     likelihood: AuthenticityLikelihood
     confidence: float = Field(ge=0.0, le=1.0)
     composite_risk_score_0_1: float = Field(ge=0.0, le=1.0)
     reasons: List[str]
     signals: Dict[str, SignalScore]
     is_advisory: bool = True
-    disclaimer: str = (
-        "Advisory signal to support teacher judgment — not an automated accusation."
-    )
+    disclaimer: str = "Advisory signal to support teacher judgment — not an automated accusation."
 
 
 class AuthenticityAnalyzer:
@@ -45,8 +44,19 @@ class AuthenticityAnalyzer:
 
     # Natural speech fillers and disfluency markers
     FILLERS: List[str] = [
-        "um", "uh", "er", "ah", "like", "you know", "i mean", "sort of",
-        "kind of", "actually", "basically", "well", "so yeah",
+        "um",
+        "uh",
+        "er",
+        "ah",
+        "like",
+        "you know",
+        "i mean",
+        "sort of",
+        "kind of",
+        "actually",
+        "basically",
+        "well",
+        "so yeah",
     ]
 
     def __init__(
@@ -55,7 +65,7 @@ class AuthenticityAnalyzer:
         disfluency_min_expected: float = 1.0,  # Fillers per 100 words in spontaneous speech
         midclause_pause_ratio_threshold: float = 0.35,
         onset_latency_lower_sec: float = 0.30,  # Superhuman threshold: < 300ms
-        onset_latency_upper_sec: float = 8.0,   # Searching notes threshold: > 8000ms
+        onset_latency_upper_sec: float = 8.0,  # Searching notes threshold: > 8000ms
         probe_score_delta_threshold: float = 3.5,
     ):
         self.ngram_threshold = ngram_threshold
@@ -87,10 +97,7 @@ class AuthenticityAnalyzer:
                 explanation="Insufficient answer length or reference material for n-gram comparison.",
             )
 
-        student_ngrams = set(
-            tuple(student_words[i : i + n])
-            for i in range(len(student_words) - n + 1)
-        )
+        student_ngrams = set(tuple(student_words[i : i + n]) for i in range(len(student_words) - n + 1))
 
         all_ref_ngrams = set()
         for chunk in reference_chunks:
@@ -181,9 +188,7 @@ class AuthenticityAnalyzer:
         else:
             flagged = False
             norm_score = 0.0
-            explanation = (
-                f"Natural conversational disfluency rate ({rate_per_100:.1f} per 100 words)."
-            )
+            explanation = f"Natural conversational disfluency rate ({rate_per_100:.1f} per 100 words)."
 
         return SignalScore(
             name="disfluency_rate",
@@ -325,8 +330,7 @@ class AuthenticityAnalyzer:
         norm_score = max(0.0, 1.0 - (coeff_of_variation / 0.25)) if flagged else 0.0
 
         explanation = (
-            f"Low cadence variability (CV = {coeff_of_variation:.2f}). "
-            f"Monotone or rhythmic reading pattern observed."
+            f"Low cadence variability (CV = {coeff_of_variation:.2f}). Monotone or rhythmic reading pattern observed."
             if flagged
             else f"Natural expressive rhythm with healthy variation (CV = {coeff_of_variation:.2f})."
         )
@@ -391,9 +395,7 @@ class AuthenticityAnalyzer:
             if base_lat and onset_latency_seconds > base_lat * 2.8 and onset_latency_seconds > 6.0:
                 flagged = True
                 norm_score = 0.40
-                explanation = (
-                    f"Atypical response delay ({onset_latency_seconds:.1f}s vs student warmup baseline {base_lat:.1f}s)."
-                )
+                explanation = f"Atypical response delay ({onset_latency_seconds:.1f}s vs student warmup baseline {base_lat:.1f}s)."
 
         return SignalScore(
             name="onset_latency",
@@ -476,9 +478,10 @@ class AuthenticityAnalyzer:
         # 1. Try Praat (parselmouth)
         try:
             import parselmouth
+
             sound = parselmouth.Sound(audio_path)
             pitch = sound.to_pitch()
-            pitch_values = pitch.selected_array['frequency']
+            pitch_values = pitch.selected_array["frequency"]
             voiced_pitches = [float(p) for p in pitch_values if p > 50.0]
             if len(voiced_pitches) >= 10:
                 f0_mean = sum(voiced_pitches) / len(voiced_pitches)
@@ -491,6 +494,7 @@ class AuthenticityAnalyzer:
         if f0_std is None:
             try:
                 import librosa
+
                 y, sr = librosa.load(audio_path, sr=16000)
                 f0, _, _ = librosa.pyin(y, fmin=50, fmax=500, sr=sr)
                 voiced_pitches = [float(p) for p in f0 if p is not None and not math.isnan(p) and p > 50.0]
@@ -561,14 +565,10 @@ class AuthenticityAnalyzer:
         signals["ngram_overlap"] = self.compute_ngram_overlap(student_text, reference_chunks)
 
         # 2. Disfluency rate (calibrated with warmup baseline)
-        signals["disfluency_rate"] = self.compute_disfluency_rate(
-            student_text, word_timestamps, warmup_baseline
-        )
+        signals["disfluency_rate"] = self.compute_disfluency_rate(student_text, word_timestamps, warmup_baseline)
 
         # 3. Pause distribution (calibrated with warmup baseline)
-        signals["pause_distribution"] = self.compute_pause_distribution(
-            word_timestamps, warmup_baseline
-        )
+        signals["pause_distribution"] = self.compute_pause_distribution(word_timestamps, warmup_baseline)
 
         # 4. Prosody / cadence variance
         signals["prosody_variance"] = self.compute_prosody_variance(
@@ -576,9 +576,7 @@ class AuthenticityAnalyzer:
         )
 
         # 5. Onset latency (calibrated with warmup baseline)
-        signals["onset_latency"] = self.compute_onset_latency(
-            onset_latency_seconds, question_type, warmup_baseline
-        )
+        signals["onset_latency"] = self.compute_onset_latency(onset_latency_seconds, question_type, warmup_baseline)
 
         # 6. Dynamic Probe delta (if applicable)
         if question_type == "probe" and core_avg_score is not None and turn_score is not None:
@@ -687,8 +685,16 @@ class AuthenticityAnalyzer:
         merged_signals: Dict[str, SignalScore] = {}
         if turn_reports:
             for sig_key in turn_reports[0].signals:
-                vals = [r.signals[sig_key].raw_value for r in turn_reports if sig_key in r.signals and r.signals[sig_key].is_available]
-                norms = [r.signals[sig_key].normalized_score_0_1 for r in turn_reports if sig_key in r.signals and r.signals[sig_key].is_available]
+                vals = [
+                    r.signals[sig_key].raw_value
+                    for r in turn_reports
+                    if sig_key in r.signals and r.signals[sig_key].is_available
+                ]
+                norms = [
+                    r.signals[sig_key].normalized_score_0_1
+                    for r in turn_reports
+                    if sig_key in r.signals and r.signals[sig_key].is_available
+                ]
                 if vals:
                     merged_signals[sig_key] = SignalScore(
                         name=sig_key,

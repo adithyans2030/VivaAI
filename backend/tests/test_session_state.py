@@ -8,11 +8,10 @@ from app.core.security import create_access_token
 from app.main import app
 from app.models.session import AuthenticityLikelihood, SessionStatus, VivaSession
 from app.models.subject import Subject
-from app.models.turn import Turn
 from app.models.user import User
-from app.services.llm.mock import MockLLMProvider
 from app.services.examiner import ExaminerService
 from app.services.grader import GraderService
+from app.services.llm.mock import MockLLMProvider
 from app.services.session_state import VivaSessionOrchestrator
 from tests.conftest import test_async_session
 
@@ -100,6 +99,7 @@ async def test_session_state_machine_flow(student_user: User, mock_orchestrator:
 
 def test_session_state_http_endpoint(student_user: User, teacher_user: User, monkeypatch):
     """Test HTTP GET /api/v1/sessions/{id}/state recovery endpoint."""
+
     async def override_get_db():
         async with test_async_session() as session:
             try:

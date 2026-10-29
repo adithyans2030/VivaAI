@@ -1,8 +1,7 @@
 """Tests for audio streaming API endpoint."""
 
-import io
-from pathlib import Path
 import wave
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -20,6 +19,7 @@ from tests.conftest import test_async_session
 @pytest.mark.asyncio
 async def test_audio_streaming_endpoint(student_user: User, teacher_user: User):
     """Verify audio retrieval and student vs teacher authorization."""
+
     async def override_get_db():
         async with test_async_session() as session:
             try:
@@ -136,4 +136,3 @@ async def test_tts_providers():
     # 3. EdgeTTS instance initializes properly
     edge_tts_inst = EdgeTTSProvider(voice="en-US-JennyNeural")
     assert edge_tts_inst.voice == "en-US-JennyNeural"
-

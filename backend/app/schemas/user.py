@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from typing import Optional
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.user import UserRole
@@ -15,6 +16,7 @@ class UserBase(BaseModel):
 
 class UserRegister(BaseModel):
     """Public self-registration schema. Role is omitted and strictly forced to STUDENT on the server."""
+
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
@@ -22,6 +24,7 @@ class UserRegister(BaseModel):
 
 class UserAdminCreate(BaseModel):
     """Admin-only user creation schema for provisioning teachers and administrators."""
+
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=255)
     password: str = Field(..., min_length=8, max_length=128)
@@ -30,6 +33,7 @@ class UserAdminCreate(BaseModel):
 
 class UserCreate(UserBase):
     """Internal user creation schema with 8-character minimum password."""
+
     password: str = Field(..., min_length=8, max_length=128)
 
 

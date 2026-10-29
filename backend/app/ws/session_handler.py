@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-from pathlib import Path
 import time
 from typing import Optional
 
@@ -18,7 +17,6 @@ from app.models.session import SessionStatus, VivaSession
 from app.models.turn import Turn
 from app.models.user import User
 from app.services.audio_conversion import transcode_to_wav
-from app.services.grader import get_grader_service
 from app.services.session_state import get_viva_orchestrator
 from app.services.stt import get_stt_provider
 from app.services.tts import get_tts_provider
@@ -77,11 +75,7 @@ async def viva_session_websocket(
 
     # Verify session ownership and consent
     async with async_session_factory() as db:
-        stmt = (
-            select(VivaSession)
-            .where(VivaSession.id == session_id)
-            .options(selectinload(VivaSession.turns))
-        )
+        stmt = select(VivaSession).where(VivaSession.id == session_id).options(selectinload(VivaSession.turns))
         session = (await db.execute(stmt)).scalar_one_or_none()
         if not session:
             await websocket.close(code=4404, reason="Session not found")
@@ -311,6 +305,15 @@ async def viva_session_websocket(
                             .options(selectinload(VivaSession.turns), selectinload(VivaSession.subject))
                         )
                         sess = (await db.execute(sess_stmt)).scalar_one_or_none()
+                        if sess is None:
+                            await manager.send_json(
+                                session_id,
+                                {
+                                    "type": "error",
+                                    "payload": {"code": "SESSION_NOT_FOUND", "message": "Session no longer exists."},
+                                },
+                            )
+                            break
                         report = await orchestrator.finalize_session(db, sess)
                         await manager.send_json(session_id, {"type": "session_complete", "payload": report})
                         break
@@ -353,8 +356,8 @@ async def viva_session_websocket(
                 turn_id = payload.get("turn_id")
                 async with async_session_factory() as db:
                     turn_stmt = select(Turn).where(Turn.id == turn_id, Turn.session_id == session_id)
-                    turn = (await db.execute(turn_stmt)).scalar_one_or_none()
-                    if not turn:
+                    repeat_turn = (await db.execute(turn_stmt)).scalar_one_or_none()
+                    if not repeat_turn:
                         await manager.send_json(
                             session_id,
                             {
@@ -364,7 +367,7 @@ async def viva_session_websocket(
                         )
                         continue
 
-                    repeat_count = manager.get_repeat_count(session_id, turn.id)
+                    repeat_count = manager.get_repeat_count(session_id, repeat_turn.id)
                     if repeat_count >= 1:
                         await manager.send_json(
                             session_id,
@@ -378,18 +381,18 @@ async def viva_session_websocket(
                         )
                         continue
 
-                    manager.increment_repeat_count(session_id, turn.id)
+                    manager.increment_repeat_count(session_id, repeat_turn.id)
                     await manager.send_json(
                         session_id,
                         {
                             "type": "state_change",
-                            "payload": {"state": "examiner_speaking", "turn_number": turn.turn_number},
+                            "payload": {"state": "examiner_speaking", "turn_number": repeat_turn.turn_number},
                         },
                     )
 
                     # Re-trigger server TTS on repeat
                     tts_service = get_tts_provider()
-                    tts_audio = await tts_service.synthesize_audio(turn.question_text)
+                    tts_audio = await tts_service.synthesize_audio(repeat_turn.question_text)
                     audio_b64 = base64.b64encode(tts_audio).decode("utf-8") if tts_audio else None
 
                     await manager.send_json(
@@ -397,11 +400,11 @@ async def viva_session_websocket(
                         {
                             "type": "question",
                             "payload": {
-                                "turn_id": turn.id,
-                                "turn_number": turn.turn_number,
-                                "question_text": turn.question_text,
-                                "topic": turn.topic,
-                                "question_type": turn.question_type,
+                                "turn_id": repeat_turn.id,
+                                "turn_number": repeat_turn.turn_number,
+                                "question_text": repeat_turn.question_text,
+                                "topic": repeat_turn.topic,
+                                "question_type": repeat_turn.question_type,
                                 "is_repeat": True,
                                 "audio_b64": audio_b64,
                             },
@@ -411,7 +414,7 @@ async def viva_session_websocket(
                         session_id,
                         {
                             "type": "state_change",
-                            "payload": {"state": "listening", "turn_number": turn.turn_number},
+                            "payload": {"state": "listening", "turn_number": repeat_turn.turn_number},
                         },
                     )
 

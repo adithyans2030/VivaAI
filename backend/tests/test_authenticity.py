@@ -1,6 +1,7 @@
 """Tests for Advisory Authenticity Assessment Engine."""
 
 import pytest
+
 from app.models.session import AuthenticityLikelihood
 from app.services.authenticity import (
     AuthenticityAnalyzer,
@@ -98,7 +99,11 @@ def test_dynamic_probe_delta(analyzer: AuthenticityAnalyzer):
 def test_session_aggregation(analyzer: AuthenticityAnalyzer):
     """Verifies session-level aggregation over multiple turns."""
     r1 = analyzer.analyze_turn(1, "Hello, my name is Alex.", [], question_type="warmup")
-    r2 = analyzer.analyze_turn(2, "Virtual memory uses page tables.", ["Virtual memory uses page tables to map virtual addresses to physical frames."])
+    r2 = analyzer.analyze_turn(
+        2,
+        "Virtual memory uses page tables.",
+        ["Virtual memory uses page tables to map virtual addresses to physical frames."],
+    )
 
     agg = analyzer.aggregate_session([r1, r2])
     assert isinstance(agg, AuthenticityReport)
@@ -170,4 +175,3 @@ def test_unavailable_acoustic_signal_omitted(analyzer: AuthenticityAnalyzer):
     assert pitch_sig.flagged is False
     assert report.is_advisory is True
     assert "Advisory signal to support teacher judgment" in report.disclaimer
-
