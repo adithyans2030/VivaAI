@@ -2,9 +2,11 @@
 
 import asyncio
 import io
+import json
 import math
 import wave
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 from app.core.config import settings
@@ -13,6 +15,9 @@ from app.core.logging import logger
 
 class BaseTTSProvider(ABC):
     """Abstract Base Class for Text-to-Speech synthesis."""
+
+    # MIME type of the bytes this provider produces; sent to the client so it can play them.
+    mime_type: Optional[str] = None
 
     async def synthesize_audio(self, text: str) -> Optional[bytes]:
         """Synthesize text into complete audio bytes (WAV/MP3). Returns None if browser TTS is active."""
@@ -35,6 +40,8 @@ class BrowserTTSProvider(BaseTTSProvider):
     Server returns None for audio bytes, signaling the client to use browser speech synthesis.
     """
 
+    mime_type = None
+
     async def synthesize_audio(self, text: str) -> Optional[bytes]:
         return None
 
@@ -44,6 +51,8 @@ class BrowserTTSProvider(BaseTTSProvider):
 
 class MockTTSProvider(BaseTTSProvider):
     """Deterministic TTS provider generating a lightweight sine beep WAV for test pipelines."""
+
+    mime_type = "audio/wav"
 
     def _generate_sine_wav(self) -> bytes:
         sample_rate = 16000
@@ -73,8 +82,10 @@ class MockTTSProvider(BaseTTSProvider):
 class EdgeTTSProvider(BaseTTSProvider):
     """High-quality neural server-side TTS using edge-tts (fast, neural quality)."""
 
-    def __init__(self, voice: str = "en-US-JennyNeural"):
-        self.voice = voice
+    mime_type = "audio/mpeg"
+
+    def __init__(self, voice: Optional[str] = None):
+        self.voice = voice or settings.EDGE_TTS_VOICE
 
     async def synthesize_audio(self, text: str) -> Optional[bytes]:
         try:
@@ -105,32 +116,64 @@ class EdgeTTSProvider(BaseTTSProvider):
 
 
 class PiperTTSProvider(BaseTTSProvider):
-    """Local neural TTS via Piper binary."""
+    """Local neural TTS via Piper binary.
+
+    Piper's --output-raw emits headerless 16-bit mono PCM, which browsers cannot play,
+    so the output is wrapped in a WAV container at the voice's sample rate.
+    """
+
+    mime_type = "audio/wav"
+    DEFAULT_SAMPLE_RATE = 22050
 
     def __init__(self, model_path: Optional[str] = None):
         self.model_path = model_path or settings.PIPER_MODEL_PATH
+        self.sample_rate = self._read_sample_rate(self.model_path)
+
+    @classmethod
+    def _read_sample_rate(cls, model_path: str) -> int:
+        """Piper voices ship a `<model>.onnx.json` config holding `audio.sample_rate`."""
+        try:
+            config = json.loads(Path(f"{model_path}.json").read_text(encoding="utf-8"))
+            return int(config["audio"]["sample_rate"])
+        except Exception:
+            return cls.DEFAULT_SAMPLE_RATE
+
+    async def _run_piper(self, text: str) -> bytes:
+        process = await asyncio.create_subprocess_exec(
+            "piper",
+            "--model",
+            self.model_path,
+            "--output-raw",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await process.communicate(input=text.encode("utf-8"))
+        if process.returncode != 0:
+            raise RuntimeError(f"piper exited {process.returncode}: {stderr.decode(errors='replace')[:200]}")
+        return stdout
+
+    def _wrap_wav(self, pcm: bytes) -> bytes:
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(self.sample_rate)
+            wf.writeframes(pcm)
+        return buffer.getvalue()
+
+    async def synthesize_audio(self, text: str) -> Optional[bytes]:
+        try:
+            pcm = await self._run_piper(text)
+        except Exception as e:
+            logger.warning(f"Piper TTS execution failed: {e}. Falling back to browser speech.")
+            return None
+        return self._wrap_wav(pcm) if pcm else None
 
     async def synthesize_stream(self, text: str) -> AsyncGenerator[bytes, None]:
-        try:
-            process = await asyncio.create_subprocess_exec(
-                "piper",
-                "--model",
-                self.model_path,
-                "--output-raw",
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-            stdout, _ = await process.communicate(input=text.encode("utf-8"))
-            if stdout:
-                chunk_size = 4096
-                for i in range(0, len(stdout), chunk_size):
-                    yield stdout[i : i + chunk_size]
-        except Exception as e:
-            logger.warning(f"Piper TTS execution failed: {e}. Falling back to Browser TTS.")
-            async for chunk in BrowserTTSProvider().synthesize_stream(text):
-                yield chunk
+        audio = await self.synthesize_audio(text)
+        if audio:
+            yield audio
 
 
 _tts_instance: Optional[BaseTTSProvider] = None
@@ -147,5 +190,7 @@ def get_tts_provider() -> BaseTTSProvider:
         elif settings.TTS_PROVIDER == "mock":
             _tts_instance = MockTTSProvider()
         else:
+            if settings.TTS_PROVIDER != "browser":
+                logger.warning(f"TTS_PROVIDER='{settings.TTS_PROVIDER}' is not available; using browser speech.")
             _tts_instance = BrowserTTSProvider()
     return _tts_instance

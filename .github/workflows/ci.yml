@@ -2,35 +2,143 @@ name: VivaIQ CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
     branches: [main]
 
 jobs:
-  backend-test:
-    name: Backend Tests & Linting
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Backend: Ruff Lint + Mypy + Pytest (≥80% coverage)
+  # ─────────────────────────────────────────────────────────────────────────────
+  backend:
+    name: "Backend — Python ${{ matrix.python-version }}"
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    defaults:
+      run:
+        working-directory: backend
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: "pip"
+          cache-dependency-path: backend/requirements.txt
 
-      - name: Install dependencies
+      - name: Install ffmpeg (for audio transcoding tests)
+        run: sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-          pip install ruff mypy
+          pip install -r requirements.txt
+          pip install ruff mypy pytest-cov pip-audit
 
-      - name: Run Ruff Lint
-        run: |
-          cd backend
-          ruff check .
+      - name: Ruff — format check
+        run: ruff format --check .
 
-      - name: Run Pytest
+      - name: Ruff — lint (E, F, W, I rules)
+        run: ruff check .
+
+      - name: Mypy — static type checks
+        run: mypy app --config-file pyproject.toml
+
+      - name: Dependency audit
+        run: pip-audit -r requirements.txt
+
+      - name: Pytest — unit & integration tests (≥70% app, ≥80% services)
+        env:
+          SECRET_KEY: "ci-secret-key-at-least-32-characters-long"
+          DATABASE_URL: "sqlite+aiosqlite:///./test_ci.db"
+          STT_PROVIDER: "mock"
+          LLM_PROVIDER: "mock"
+          TTS_PROVIDER: "browser"
+          EMBEDDING_PROVIDER: "mock"
+          DEMO_MODE: "false"
         run: |
-          cd backend
-          pytest -v --cov=app
+          pytest -v --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=70
+          coverage report --include="app/services/*" --fail-under=80
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.11'
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Frontend: TypeScript + ESLint + Next.js Build
+  # ─────────────────────────────────────────────────────────────────────────────
+  frontend:
+    name: "Frontend — Node ${{ matrix.node-version }}"
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ["20", "22"]
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: TypeScript — strict type check
+        run: npx tsc --noEmit
+
+      - name: ESLint — zero warnings
+        run: npx eslint . --max-warnings 0
+
+      - name: Dependency audit (production deps, high+)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Next.js — production build (validates compilation + static generation)
+        env:
+          NEXT_PUBLIC_API_URL: "http://localhost:8000"
+          NEXT_PUBLIC_WS_URL: "ws://localhost:8000"
+          NEXT_PUBLIC_DEMO_MODE: "false"
+        run: npm run build
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Docker Build Smoke Test
+  # ─────────────────────────────────────────────────────────────────────────────
+  docker-smoke:
+    name: Docker Build Smoke Test
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend Docker image
+        run: docker build -t vivaiq-backend:ci ./backend
+
+      - name: Verify backend image starts
+        run: |
+          docker run --rm -d \
+            -e SECRET_KEY="ci-secret-key-at-least-32-characters-long" \
+            -e STT_PROVIDER=mock -e LLM_PROVIDER=mock -e TTS_PROVIDER=browser \
+            -e EMBEDDING_PROVIDER=mock \
+            -p 8001:8000 \
+            --name vivaiq-smoke \
+            vivaiq-backend:ci &
+          sleep 8
+          curl -sf http://localhost:8001/health || (docker logs vivaiq-smoke && exit 1)
+          docker stop vivaiq-smoke

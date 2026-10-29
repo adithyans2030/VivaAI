@@ -341,6 +341,7 @@ async def viva_session_websocket(
                                     "topic": active_turn.topic,
                                     "question_type": active_turn.question_type,
                                     "audio_b64": audio_b64,
+                                    "audio_mime": tts_service.mime_type if audio_b64 else None,
                                 },
                             },
                         )
@@ -407,6 +408,7 @@ async def viva_session_websocket(
                                 "question_type": repeat_turn.question_type,
                                 "is_repeat": True,
                                 "audio_b64": audio_b64,
+                                "audio_mime": tts_service.mime_type if audio_b64 else None,
                             },
                         },
                     )

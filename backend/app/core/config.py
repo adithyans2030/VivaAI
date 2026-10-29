@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     # TTS Configuration
     TTS_PROVIDER: Literal["browser", "piper", "kokoro", "edge", "mock"] = "browser"
     PIPER_MODEL_PATH: str = ""
+    EDGE_TTS_VOICE: str = "en-US-JennyNeural"  # e.g. en-IN-NeerjaNeural for Indian English
 
     # RAG & Embeddings
     EMBEDDING_MODEL: str = "sentence-transformers/all-MiniLM-L6-v2"

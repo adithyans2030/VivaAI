@@ -1,5 +1,6 @@
 """VivaIQ FastAPI Application Entrypoint."""
 
+import asyncio
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -10,9 +11,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import settings
-from app.core.database import init_db
+from app.core.database import async_session_factory, init_db
 from app.core.errors import VivaIQError, vivaiq_exception_handler
 from app.core.logging import logger, setup_logging
+from app.services.retention import run_retention_forever
 from app.ws.session_handler import router as ws_router
 
 
@@ -22,9 +24,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(debug=settings.DEBUG)
     logger.info("Initializing VivaIQ database schema...")
     await init_db()
+    retention_task = None
+    if settings.ENVIRONMENT != "testing":
+        retention_task = asyncio.create_task(run_retention_forever(async_session_factory))
     logger.info("Database schema initialized. VivaIQ ready.")
     yield
     logger.info("Shutting down VivaIQ services...")
+    if retention_task:
+        retention_task.cancel()
 
 
 app = FastAPI(
