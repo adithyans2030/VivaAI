@@ -7,13 +7,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import ensure_session_access, get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.session import VivaSession
-from app.models.subject import Subject
 from app.models.turn import Turn
-from app.models.user import User, UserRole
+from app.models.user import User
 
 router = APIRouter(prefix="/audio", tags=["audio"])
 
@@ -35,22 +34,7 @@ async def get_turn_audio(
             detail=f"Session '{session_id}' not found",
         )
 
-    # Access control: Only the session's student, assigned teachers of the subject, and admins may fetch audio (WS-2.5)
-    if current_user.role == UserRole.STUDENT:
-        if session.student_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this audio recording",
-            )
-    elif current_user.role == UserRole.TEACHER:
-        # Check if this teacher is assigned to the session's subject
-        subj_stmt = select(Subject).where(Subject.id == session.subject_id)
-        subject = (await db.execute(subj_stmt)).scalar_one_or_none()
-        if subject and subject.teacher_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied: you are not the assigned teacher for this course",
-            )
+    await ensure_session_access(db, current_user, session)
 
     # Check file on disk
     audio_path = settings.AUDIO_STORAGE_PATH / session_id / f"{turn_id}.wav"

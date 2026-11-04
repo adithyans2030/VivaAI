@@ -39,6 +39,7 @@ class FakeSegment:
 class FakeWhisperModel:
     instances: List["FakeWhisperModel"] = []
     fail_on_devices: set = set()
+    fail_inference_on: set = set()
 
     def __init__(self, model_size_or_path: str, device: str, compute_type: str) -> None:
         if device in self.fail_on_devices:
@@ -48,6 +49,8 @@ class FakeWhisperModel:
         FakeWhisperModel.instances.append(self)
 
     def transcribe(self, source: Any, **kwargs: Any) -> tuple:
+        if self.device in self.fail_inference_on:
+            raise RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
         self.calls.append({"source": source, **kwargs})
         segments = iter(
             [
@@ -65,6 +68,7 @@ class FakeWhisperModel:
 def fake_whisper(monkeypatch: pytest.MonkeyPatch) -> type:
     FakeWhisperModel.instances = []
     FakeWhisperModel.fail_on_devices = set()
+    FakeWhisperModel.fail_inference_on = set()
     monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisperModel))
     monkeypatch.setattr(settings, "WHISPER_DEVICE", "cuda")
     return FakeWhisperModel
@@ -80,7 +84,7 @@ async def test_whisper_transcribes_with_word_timestamps(fake_whisper: type, monk
     assert result.text == "Mutual exclusion is required."
     assert result.duration_seconds == pytest.approx(2.345, abs=0.01)
     assert [(w.word, w.start, w.end) for w in result.words] == [("Mutual", 0.0, 0.41), ("exclusion", 0.5, 1.0)]
-    call = fake_whisper.instances[0].calls[0]
+    call = fake_whisper.instances[0].calls[-1]
     assert isinstance(call["source"], io.BytesIO)
     assert call["word_timestamps"] is True
     assert call["language"] is None  # "auto" lets whisper detect
@@ -90,7 +94,7 @@ async def test_whisper_transcribes_with_word_timestamps(fake_whisper: type, monk
 async def test_whisper_accepts_file_paths(fake_whisper: type, tmp_path: Path) -> None:
     provider = WhisperSTTProvider()
     await provider.transcribe(tmp_path / "a.wav")
-    assert fake_whisper.instances[0].calls[0]["source"] == str(tmp_path / "a.wav")
+    assert fake_whisper.instances[0].calls[-1]["source"] == str(tmp_path / "a.wav")
 
 
 def test_whisper_falls_back_to_cpu(fake_whisper: type) -> None:
@@ -98,6 +102,27 @@ def test_whisper_falls_back_to_cpu(fake_whisper: type) -> None:
     provider = WhisperSTTProvider()
     assert provider.get_active_device() == "cpu"
     assert fake_whisper.instances[0].model == "base.en"
+
+
+def test_whisper_falls_back_to_cpu_when_gpu_inference_fails(fake_whisper: type) -> None:
+    # The model loads on CUDA but the first inference fails (missing cuBLAS): must not reach students.
+    fake_whisper.fail_inference_on = {"cuda"}
+    provider = WhisperSTTProvider()
+    assert provider.get_active_device() == "cpu"
+
+
+async def test_whisper_receives_samples_for_16khz_wav(fake_whisper: type, tmp_path: Path) -> None:
+    import numpy as np
+
+    path = tmp_path / "answer.wav"
+    with wave.open(str(path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(bytes([0, 64]) * 1600)
+    await WhisperSTTProvider().transcribe(path)
+    source = fake_whisper.instances[0].calls[-1]["source"]
+    assert isinstance(source, np.ndarray) and source.dtype == np.float32 and len(source) == 1600
 
 
 async def test_whisper_unavailable_raises_outside_demo(fake_whisper: type, monkeypatch: pytest.MonkeyPatch) -> None:

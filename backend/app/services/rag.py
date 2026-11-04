@@ -4,11 +4,12 @@ Supports PDF, DOCX, TXT, and Markdown parsing, semantic chunking with overlap,
 vector embedding, and grounded source citation retrieval.
 """
 
+import asyncio
 import math
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -198,7 +199,7 @@ class HybridRAGStore(BaseRAGStore):
     """Production vector store using ChromaDB if available with fallback memory store."""
 
     def __init__(self) -> None:
-        self._chroma_client = None
+        self._chroma_client: Optional[Any] = None
         self._in_memory_chunks: Dict[str, List[DocumentChunk]] = {}  # subject_id -> chunks
         self._init_chroma()
 
@@ -224,8 +225,9 @@ class HybridRAGStore(BaseRAGStore):
 
     async def ingest_document(self, subject_id: str, document_id: str, file_path: Path, filename: str) -> int:
         """Parse, chunk, and embed a document into the subject's collection."""
-        pages_data = extract_text_from_file(file_path)
-        chunks = chunk_document_content(subject_id, document_id, filename, pages_data)
+        # PDF parsing and chunking are CPU-bound; run them off the event loop like embedding.
+        pages_data = await asyncio.to_thread(extract_text_from_file, file_path)
+        chunks = await asyncio.to_thread(chunk_document_content, subject_id, document_id, filename, pages_data)
 
         if not chunks:
             logger.warning(f"No textual content extracted from {filename}")
@@ -263,14 +265,15 @@ class HybridRAGStore(BaseRAGStore):
                     for c in chunks
                 ]
 
-                collection.upsert(
-                    ids=ids,
-                    documents=documents,
-                    metadatas=metadatas,
-                )
+                # Embedding is CPU-heavy and synchronous: keep it off the event loop so live
+                # viva connections stay responsive while a large document is indexed.
+                await asyncio.to_thread(collection.upsert, ids=ids, documents=documents, metadatas=metadatas)
                 logger.info(f"Stored {len(chunks)} chunks in ChromaDB collection '{coll_name}'")
             except Exception as e:
+                # The in-memory copy does not survive a restart, so a document Chroma could not store
+                # must not be reported as successfully ingested.
                 logger.error(f"Error upserting to ChromaDB: {e}")
+                raise RuntimeError(f"Vector store indexing failed: {e}") from e
 
         return len(chunks)
 
@@ -283,10 +286,7 @@ class HybridRAGStore(BaseRAGStore):
             try:
                 coll_name = self._get_collection_name(subject_id)
                 collection = self._chroma_client.get_collection(coll_name)
-                results = collection.query(
-                    query_texts=[query],
-                    n_results=k,
-                )
+                results = await asyncio.to_thread(collection.query, query_texts=[query], n_results=k)
                 if results and results.get("documents") and results["documents"][0]:
                     docs = results["documents"][0]
                     metas = results["metadatas"][0] if results.get("metadatas") else []
@@ -344,6 +344,17 @@ class HybridRAGStore(BaseRAGStore):
             combined_context=combined,
         )
 
+    async def has_document(self, subject_id: str, document_id: str) -> bool:
+        """True if the persistent vector store already holds chunks for this document."""
+        if not self._chroma_client:
+            return False
+        try:
+            collection = self._chroma_client.get_collection(self._get_collection_name(subject_id))
+            found = await asyncio.to_thread(collection.get, where={"document_id": document_id}, limit=1)
+            return bool(found.get("ids"))
+        except Exception:
+            return False
+
     async def delete_document(self, subject_id: str, document_id: str) -> None:
         if subject_id in self._in_memory_chunks:
             self._in_memory_chunks[subject_id] = [
@@ -354,7 +365,7 @@ class HybridRAGStore(BaseRAGStore):
             try:
                 coll_name = self._get_collection_name(subject_id)
                 collection = self._chroma_client.get_collection(coll_name)
-                collection.delete(where={"document_id": document_id})
+                await asyncio.to_thread(collection.delete, where={"document_id": document_id})
             except Exception as e:
                 logger.warning(f"ChromaDB delete error: {e}")
 
@@ -401,3 +412,35 @@ async def ingest_document_pipeline(document_id: str) -> int:
             doc.error_message = str(e)
             await db.commit()
             raise
+
+
+async def sync_documents_into_vector_store(force: bool = False) -> int:
+    """Index completed documents that the persistent vector store is missing.
+
+    Runs at startup so documents uploaded while ChromaDB was unavailable (or lost from disk)
+    become searchable again. Returns the number of documents (re)indexed.
+    """
+    store = get_rag_store()
+    if not store.is_chroma_active():
+        return 0
+    async with async_session_factory() as db:
+        docs = (
+            (await db.execute(select(Document).where(Document.ingestion_status == IngestionStatus.COMPLETED)))
+            .scalars()
+            .all()
+        )
+    reindexed = 0
+    for doc in docs:
+        if not force and isinstance(store, HybridRAGStore) and await store.has_document(doc.subject_id, doc.id):
+            continue
+        if not Path(doc.file_path).exists():
+            logger.warning(f"Cannot index '{doc.filename}': file missing at {doc.file_path}")
+            continue
+        try:
+            await ingest_document_pipeline(doc.id)
+            reindexed += 1
+        except Exception as e:
+            logger.error(f"Re-indexing '{doc.filename}' failed: {e}")
+    if reindexed:
+        logger.info(f"Vector store sync: indexed {reindexed} document(s)")
+    return reindexed

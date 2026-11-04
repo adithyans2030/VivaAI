@@ -62,9 +62,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
-    """Initialize database tables (used for SQLite setup / tests)."""
+    """Create or migrate the schema.
+
+    Tests use create_all on a throwaway database; everything else runs Alembic migrations
+    so existing data is upgraded in place rather than recreated.
+    """
     # Import all models so metadata knows them
     import app.models  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if settings.ENVIRONMENT == "testing":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        return
+
+    from app.core.migrations import upgrade_database
+
+    await upgrade_database(engine, settings.DATABASE_URL)

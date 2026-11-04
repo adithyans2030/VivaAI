@@ -32,6 +32,12 @@ export interface DocumentItem {
   error_message?: string;
 }
 
+export interface OverrideResult {
+  message: string;
+  updated_session_score: number | null;
+  updated_session_flag: "low" | "medium" | "high" | "unknown";
+}
+
 export interface Turn {
   id: string;
   turn_number: number;
@@ -76,26 +82,66 @@ export interface VivaSession {
   subject_code?: string;
 }
 
+/** FastAPI returns `detail` as a string, or as a list of validation errors for 422s. */
+function formatErrorDetail(body: { detail?: unknown; message?: unknown }): string | null {
+  const { detail, message } = body;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d: { loc?: unknown[]; msg?: string }) => [d.loc?.slice(1).join("."), d.msg].filter(Boolean).join(": "))
+      .join("; ");
+  }
+  return typeof message === "string" ? message : null;
+}
+
 class ApiClient {
   private getToken(): string | null {
     if (typeof window === "undefined") return null;
     return localStorage.getItem("vivaiq_token");
   }
 
-  setToken(token: string) {
+  private refreshInFlight: Promise<boolean> | null = null;
+
+  setToken(token: string, refreshToken?: string) {
     if (typeof window !== "undefined") {
       localStorage.setItem("vivaiq_token", token);
+      if (refreshToken) localStorage.setItem("vivaiq_refresh", refreshToken);
     }
   }
 
   clearToken() {
     if (typeof window !== "undefined") {
       localStorage.removeItem("vivaiq_token");
+      localStorage.removeItem("vivaiq_refresh");
       localStorage.removeItem("vivaiq_user");
     }
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  /** Exchange the stored refresh token (rotated server-side). Concurrent 401s share one attempt. */
+  private refreshAccessToken(): Promise<boolean> {
+    if (this.refreshInFlight) return this.refreshInFlight;
+    const refreshToken = typeof window !== "undefined" ? localStorage.getItem("vivaiq_refresh") : null;
+    if (!refreshToken) return Promise.resolve(false);
+
+    this.refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return false;
+        const data: { access_token: string; refresh_token: string } = await res.json();
+        this.setToken(data.access_token, data.refresh_token);
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        this.refreshInFlight = null;
+      });
+    return this.refreshInFlight;
+  }
+
+  private async request<T>(endpoint: string, options: RequestInit = {}, isRetry = false): Promise<T> {
     const token = this.getToken();
     const headers: Record<string, string> = {
       ...(options.headers as Record<string, string>),
@@ -115,8 +161,13 @@ class ApiClient {
     });
 
     if (response.status === 401) {
+      if (!isRetry && (await this.refreshAccessToken())) {
+        return this.request<T>(endpoint, options, true);
+      }
       this.clearToken();
       if (typeof window !== "undefined" && !window.location.pathname.includes("/login")) {
+        // Plain module (no router available); a full navigation also resets client state.
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
         window.location.href = "/login";
       }
       throw new Error("Session expired. Please log in again.");
@@ -124,8 +175,7 @@ class ApiClient {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const message = errorData.detail || errorData.message || `Request failed (${response.status})`;
-      throw new Error(message);
+      throw new Error(formatErrorDetail(errorData) || `Request failed (${response.status})`);
     }
 
     if (response.status === 204) {
@@ -153,8 +203,26 @@ class ApiClient {
     }
 
     const data = await res.json();
-    this.setToken(data.access_token);
+    this.setToken(data.access_token, data.refresh_token);
     return data;
+  }
+
+  /** Revoke the refresh token server-side, then forget local credentials. */
+  async logout(): Promise<void> {
+    const refreshToken = typeof window !== "undefined" ? localStorage.getItem("vivaiq_refresh") : null;
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.getToken() ? { Authorization: `Bearer ${this.getToken()}` } : {}),
+        },
+        body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
+      });
+    } catch {
+      // Offline logout still clears local credentials.
+    }
+    this.clearToken();
   }
 
   async getMe(): Promise<User> {
@@ -244,15 +312,45 @@ class ApiClient {
     });
   }
 
-  async overrideScore(sessionId: string, data: { turn_id?: string; new_score: number; new_authenticity?: string; reason: string }): Promise<any> {
-    return this.request(`/reports/sessions/${sessionId}/override`, {
+  async overrideScore(
+    sessionId: string,
+    data: { turn_id?: string; new_score: number; new_authenticity?: string; reason: string }
+  ): Promise<OverrideResult> {
+    return this.request<OverrideResult>(`/reports/sessions/${sessionId}/override`, {
       method: "POST",
       body: JSON.stringify(data),
     });
   }
 
-  getExportCsvUrl(sessionId: string): string {
-    return `${API_BASE}/reports/sessions/${sessionId}/export/csv`;
+  /** Authenticated binary download (plain links/<audio src> cannot send the bearer header). */
+  private async fetchBlob(endpoint: string, isRetry = false): Promise<Blob> {
+    const token = this.getToken();
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (response.status === 401 && !isRetry && (await this.refreshAccessToken())) {
+      return this.fetchBlob(endpoint, true);
+    }
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(formatErrorDetail(errorData) || `Request failed (${response.status})`);
+    }
+    return response.blob();
+  }
+
+  async getTurnAudio(sessionId: string, turnId: string): Promise<Blob> {
+    return this.fetchBlob(`/sessions/${sessionId}/turns/${turnId}/audio`);
+  }
+
+  /** Download a session report export ("csv" or "pdf") with the user's credentials. */
+  async downloadSessionExport(sessionId: string, format: "csv" | "pdf"): Promise<void> {
+    const blob = await this.fetchBlob(`/reports/sessions/${sessionId}/export/${format}`);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `viva-session-${sessionId}.${format}`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 }
 

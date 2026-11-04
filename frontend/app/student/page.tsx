@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Subject, VivaSession, Turn } from "@/lib/api";
-import { VivaWebSocketClient } from "@/lib/ws";
+import { QuestionPayload, VivaWebSocketClient } from "@/lib/ws";
 import { AudioStreamRecorder } from "@/lib/audio-recorder";
 import AudioOrb, { ExaminerState } from "@/components/AudioOrb";
 import MicCheckModal from "@/components/MicCheckModal";
@@ -13,19 +12,35 @@ import {
   BookOpen,
   Mic,
   RotateCcw,
-  Sparkles,
   ArrowRight,
   ShieldCheck,
-  Layers,
   ChevronRight,
-  CheckCircle2,
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
 
-export default function StudentVivaPage() {
-  const router = useRouter();
+// Minimal Web Speech API typings (not yet in lib.dom). Used only for live captions;
+// the authoritative transcript comes from server-side Whisper.
+interface CaptionRecognitionEvent {
+  results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>;
+}
+interface CaptionRecognition {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: CaptionRecognitionEvent) => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+type SpeechWindow = Window & {
+  SpeechRecognition?: new () => CaptionRecognition;
+  webkitSpeechRecognition?: new () => CaptionRecognition;
+};
 
+const errorMessage = (err: unknown, fallback: string) => (err instanceof Error && err.message) || fallback;
+
+export default function StudentVivaPage() {
   // Catalog & Session state
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
@@ -42,18 +57,23 @@ export default function StudentVivaPage() {
   const [currentTranscript, setCurrentTranscript] = useState("");
   const [audioLevel, setAudioLevel] = useState(0);
   const [repeatedCount, setRepeatedCount] = useState(0);
-  const [currentQuestion, setCurrentQuestion] = useState<{
-    turn_id: string;
-    turn_number: number;
-    question_text: string;
-    topic?: string;
-    question_type?: string;
-  } | null>(null);
+  const [currentQuestion, setCurrentQuestion] = useState<QuestionPayload | null>(null);
 
-  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+  // WebSocket callbacks live for the whole session, so they read these refs rather than
+  // render-time state (which would be frozen at the moment the socket was created).
+  const wsClientRef = useRef<VivaWebSocketClient | null>(null);
+  const recorderRef = useRef<AudioStreamRecorder | null>(null);
+  const recognitionRef = useRef<CaptionRecognition | null>(null);
+  const playbackRef = useRef<HTMLAudioElement | null>(null);
+  const questionRef = useRef<QuestionPayload | null>(null);
+  const transcriptRef = useRef("");
 
-  // Load available subjects from backend
-  const loadSubjects = async () => {
+  const updateTranscript = (text: string) => {
+    transcriptRef.current = text;
+    setCurrentTranscript(text);
+  };
+
+  const loadSubjects = useCallback(async () => {
     setFetchError(null);
     try {
       const data = await api.listSubjects();
@@ -61,131 +81,113 @@ export default function StudentVivaPage() {
       if (data.length > 0) {
         setSelectedSubject(data[0]);
       }
-    } catch (err: any) {
-      if (isDemoMode) {
-        const demoSubject: Subject = {
-          id: "demo-course",
-          name: "Computer Science Viva (Demo)",
-          code: "CS101",
-          description: "Demo course material available in offline simulation mode.",
-          teacher_id: "teacher-1",
-          document_count: 1,
-        };
-        setSubjects([demoSubject]);
-        setSelectedSubject(demoSubject);
-      } else {
-        setFetchError(err.message || "Unable to connect to VivaIQ server. Please ensure the backend is running.");
-      }
+    } catch (err) {
+      setFetchError(errorMessage(err, "Unable to connect to VivaIQ server. Please ensure the backend is running."));
     }
-  };
-
-  useEffect(() => {
-    loadSubjects();
   }, []);
 
-  // Text-To-Speech function
-  const speakQuestion = (text: string, onEnd?: () => void) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setExaminerState("listening");
-      startListening();
-      if (onEnd) onEnd();
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 0.95; // Calm, deliberate examiner pace
-    utterance.pitch = 1.0;
-
-    setExaminerState("examiner_speaking");
-
-    utterance.onend = () => {
-      setExaminerState("listening");
-      startListening();
-      if (onEnd) onEnd();
+  useEffect(() => {
+    // Fetch on mount; state updates happen after the request resolves.
+    const timer = setTimeout(() => void loadSubjects(), 0);
+    return () => {
+      clearTimeout(timer);
+      wsClientRef.current?.disconnect();
+      void recorderRef.current?.stop();
+      recognitionRef.current?.stop();
+      playbackRef.current?.pause();
+      if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     };
+  }, [loadSubjects]);
 
-    utterance.onerror = () => {
-      setExaminerState("listening");
-      startListening();
-      if (onEnd) onEnd();
-    };
-
-    window.speechSynthesis.speak(utterance);
+  const stopListening = async () => {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    setAudioLevel(0);
+    return recorder ? recorder.stop() : undefined;
   };
 
-  // WebSocket & Audio Recorder references
-  const wsClientRef = useRef<VivaWebSocketClient | null>(null);
-  const recorderRef = useRef<AudioStreamRecorder | null>(null);
-  const recognitionRef = useRef<any>(null);
+  // Send speech_end only after the recorder has flushed its final chunk.
+  const submitAnswer = async (durationMs?: number) => {
+    const question = questionRef.current;
+    setExaminerState("processing");
+    const measured = await stopListening();
+    if (question) {
+      wsClientRef.current?.sendSpeechEnd(question.turn_id, durationMs ?? measured);
+    }
+  };
 
   const startListening = () => {
-    setCurrentTranscript("");
-    if (typeof window === "undefined") return;
+    updateTranscript("");
+    setExaminerState("listening");
 
+    const recorder = new AudioStreamRecorder({
+      onAudioChunk: (chunkB64, chunkIndex) => {
+        const question = questionRef.current;
+        if (question) wsClientRef.current?.sendAudioChunk(question.turn_id, chunkIndex, chunkB64);
+      },
+      onVolumeChange: setAudioLevel,
+      onSpeechEnd: (durationMs) => void submitAnswer(durationMs),
+    });
+    recorderRef.current = recorder;
+    recorder.start().catch((err) => {
+      recorderRef.current = null;
+      setLiveError(errorMessage(err, "Microphone unavailable. Please allow microphone access and retry."));
+    });
+
+    const w = window as SpeechWindow;
+    const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!Recognition) return;
     try {
-      const recorder = new AudioStreamRecorder({
-        onAudioChunk: (chunkB64, chunkIndex) => {
-          if (currentQuestion?.turn_id) {
-            wsClientRef.current?.sendAudioChunk(currentQuestion.turn_id, chunkIndex, chunkB64);
-          }
-        },
-        onVolumeChange: (vol) => {
-          setAudioLevel(vol);
-        },
-        onSpeechEnd: () => {
-          handleSubmitAnswer();
-        },
-      });
-      recorder.start().catch((err) => console.warn("AudioStreamRecorder mic error:", err));
-      recorderRef.current = recorder;
-    } catch (e) {
-      console.warn("Could not start audio stream recorder:", e);
-    }
-
-    // Client-side web speech recognition for live speech captions
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (SpeechRecognition) {
-      try {
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = "en-US";
-
-        recognition.onresult = (event: any) => {
-          let interim = "";
-          let final = "";
-          for (let i = 0; i < event.results.length; ++i) {
-            if (event.results[i].isFinal) {
-              final += event.results[i][0].transcript;
-            } else {
-              interim += event.results[i][0].transcript;
-            }
-          }
-          setCurrentTranscript(final || interim);
-        };
-
-        recognition.onerror = () => {};
-        recognition.start();
-        recognitionRef.current = recognition;
-      } catch (err) {
-        console.error("Speech recognition error", err);
-      }
+      const recognition = new Recognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-IN";
+      recognition.onresult = (event) => {
+        let interim = "";
+        let final = "";
+        for (let i = 0; i < event.results.length; ++i) {
+          const result = event.results[i];
+          if (result.isFinal) final += result[0].transcript;
+          else interim += result[0].transcript;
+        }
+        updateTranscript(final || interim);
+      };
+      recognition.onerror = () => {};
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      console.warn("Live captions unavailable", err);
     }
   };
 
-  const stopListening = () => {
-    if (recorderRef.current) {
-      recorderRef.current.stop();
-      recorderRef.current = null;
+  // Play the server's neural TTS when provided; fall back to browser speech synthesis.
+  const speakQuestion = (question: QuestionPayload) => {
+    setExaminerState("examiner_speaking");
+    playbackRef.current?.pause();
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+
+    const browserSpeak = () => {
+      if (!("speechSynthesis" in window)) {
+        startListening();
+        return;
+      }
+      const utterance = new SpeechSynthesisUtterance(question.question_text);
+      utterance.rate = 0.95; // Calm, deliberate examiner pace
+      utterance.onend = startListening;
+      utterance.onerror = startListening;
+      window.speechSynthesis.speak(utterance);
+    };
+
+    if (!question.audio_b64) {
+      browserSpeak();
+      return;
     }
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-    }
-    setAudioLevel(0);
+    const audio = new Audio(`data:${question.audio_mime ?? "audio/mpeg"};base64,${question.audio_b64}`);
+    playbackRef.current = audio;
+    audio.onended = startListening;
+    audio.play().catch(browserSpeak);
   };
 
   // Start Real Exam Flow
@@ -213,87 +215,69 @@ export default function StudentVivaPage() {
           ws.sendReady();
         },
         onQuestion: (q) => {
+          questionRef.current = q;
           setCurrentQuestion(q);
           setCurrentTurnIndex(q.turn_number - 1);
-          setRepeatedCount(0);
-          speakQuestion(q.question_text);
+          if (!q.is_repeat) setRepeatedCount(0);
+          speakQuestion(q);
         },
         onTranscript: (text) => {
-          if (text) setCurrentTranscript(text);
+          if (text) updateTranscript(text);
         },
         onFeedback: (fb) => {
+          const question = questionRef.current;
           const completedTurn: Turn = {
             id: fb.turn_id,
-            turn_number: currentTurnIndex + 1,
-            question_text: currentQuestion?.question_text || "",
-            question_type: currentQuestion?.question_type || "conceptual",
-            topic: currentQuestion?.topic || "Topic",
-            transcript: currentTranscript.trim(),
-            score_0_10: fb.score_0_10,
+            turn_number: question?.turn_number ?? 0,
+            question_text: question?.question_text ?? "",
+            question_type: question?.question_type ?? "",
+            topic: question?.topic ?? "",
+            transcript: transcriptRef.current.trim(),
+            score_0_10: fb.score_0_10 ?? undefined,
             rubric_breakdown: fb.rubric,
             feedback: fb.feedback,
-            authenticity_likelihood: fb.authenticity?.likelihood || "low",
-            authenticity_confidence: fb.authenticity?.confidence || 0.9,
-            authenticity_reasons: fb.authenticity?.reasons || [],
+            authenticity_likelihood: fb.authenticity.likelihood,
+            authenticity_confidence: fb.authenticity.confidence ?? undefined,
+            authenticity_reasons: fb.authenticity.reasons ?? [],
           };
           setTurns((prev) => [...prev, completedTurn]);
+          ws.sendReady();
         },
         onSessionComplete: () => {
           setExaminerState("completed");
+          ws.disconnect();
         },
         onStateChange: (st) => {
-          if (
-            st === "processing" ||
-            st === "examiner_speaking" ||
-            st === "listening" ||
-            st === "completed"
-          ) {
-            setExaminerState(st as any);
-          }
+          // Speaking/listening are driven by local playback and the mic; the server
+          // is authoritative for processing and completion.
+          if (st === "processing" || st === "completed") setExaminerState(st);
         },
         onError: (err) => {
           setLiveError(err.message || "An error occurred during examination.");
         },
-      });
+      }, { getTicket: () => api.getWsTicket(sess.id) });
 
       ws.connect();
       wsClientRef.current = ws;
-    } catch (err: any) {
+    } catch (err) {
       setIsInitializing(false);
-      setLiveError(err.message || "Failed to start viva session. Please check connection and retry.");
+      setLiveError(errorMessage(err, "Failed to start viva session. Please check connection and retry."));
     }
   };
 
-  // Submit Answer to Real Backend
-  const handleSubmitAnswer = () => {
-    stopListening();
-    setExaminerState("processing");
+  const handleSubmitAnswer = () => void submitAnswer();
 
-    if (currentQuestion?.turn_id) {
-      wsClientRef.current?.sendSpeechEnd(currentQuestion.turn_id);
-    }
-    // The UI remains in 'processing' state while the real backend transcribes & grades.
-    // No fake timers or fabricated results (WS-3).
-  };
-
-  // Repeat question (at most 1 repeat permitted per turn)
-  const handleRepeatQuestion = () => {
-    if (repeatedCount >= 1 || !currentQuestion) return;
+  // Repeat question (at most 1 repeat per turn); the server replays it as an is_repeat question.
+  const handleRepeatQuestion = async () => {
+    const question = questionRef.current;
+    if (repeatedCount >= 1 || !question) return;
     setRepeatedCount((c) => c + 1);
-    stopListening();
-    wsClientRef.current?.sendRepeatQuestion(currentQuestion.turn_id);
-    speakQuestion(currentQuestion.question_text);
+    await stopListening();
+    wsClientRef.current?.sendRepeatQuestion(question.turn_id);
   };
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-8 text-[var(--text-primary)]">
-      {/* Persistent Demo Mode Banner if explicitly active */}
-      {isDemoMode && (
-        <div className="p-2.5 rounded-xl text-center text-xs bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
-          Demo mode: results are simulated for offline presentation.
-        </div>
-      )}
-
       {/* ------------------------------------------------------------- */}
       {/* Subject Selection View                                        */}
       {/* ------------------------------------------------------------- */}
@@ -462,45 +446,54 @@ export default function StudentVivaPage() {
                 </div>
 
                 <div className="font-editorial text-xl sm:text-2xl font-normal leading-relaxed text-[var(--text-primary)]">
-                  "{currentQuestion?.question_text || "Preparing your next grounded question..."}"
+                  &ldquo;{currentQuestion?.question_text || "Preparing your next grounded question..."}&rdquo;
                 </div>
 
-                {/* Candidate Live Transcription Output */}
-                <div className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
-                    <span>Your Spoken Answer:</span>
-                    {examinerState === "listening" && (
-                      <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Listening
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-[var(--text-secondary)] italic min-h-[44px]">
-                    {currentTranscript ? `"${currentTranscript}"` : "(Awaiting speech input...)"}
+                {examinerState === "completed" ? (
+                  <p className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] text-sm text-[var(--text-secondary)]">
+                    Your viva is complete. Your teacher will review the recording, transcript and scores.
                   </p>
-                </div>
+                ) : (
+                  <>
+                    {/* Candidate Live Transcription Output */}
+                    <div className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
+                        <span>Your Spoken Answer:</span>
+                        {examinerState === "listening" && (
+                          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Listening
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-[var(--text-secondary)] italic min-h-[44px]">
+                        {currentTranscript ? `“${currentTranscript}”` : "(Awaiting speech input...)"}
+                      </p>
+                    </div>
 
-                {/* Control Actions */}
-                <div className="flex items-center justify-between pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      if (wsClientRef.current) wsClientRef.current.sendEndSession();
-                      setExaminerState("completed");
-                    }}
-                  >
-                    End Session
-                  </Button>
+                    {/* Control Actions */}
+                    <div className="flex items-center justify-between pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          await stopListening();
+                          wsClientRef.current?.sendEndSession();
+                          setExaminerState("completed");
+                        }}
+                      >
+                        End Session
+                      </Button>
 
-                  {examinerState === "listening" && (
-                    <Button size="sm" onClick={handleSubmitAnswer}>
-                      Submit Answer
-                      <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
-                    </Button>
-                  )}
-                </div>
+                      {examinerState === "listening" && (
+                        <Button size="sm" onClick={handleSubmitAnswer}>
+                          Submit Answer
+                          <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+                        </Button>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -520,10 +513,10 @@ export default function StudentVivaPage() {
                         Turn #{t.turn_number}: {t.topic}
                       </span>
                       <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                        {t.score_0_10}/10
+                        {t.question_type === "warmup" ? "Warm-up · not scored" : `${t.score_0_10 ?? "—"}/10`}
                       </span>
                     </div>
-                    <p className="text-xs text-[var(--text-secondary)] italic">"{t.transcript}"</p>
+                    <p className="text-xs text-[var(--text-secondary)] italic">&ldquo;{t.transcript}&rdquo;</p>
                     <p className="text-xs text-[var(--text-muted)]">{t.feedback}</p>
                   </div>
                 ))}

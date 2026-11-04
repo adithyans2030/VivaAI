@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
@@ -10,48 +10,50 @@ interface ThemeContextType {
   setTheme: (theme: Theme) => void;
 }
 
+const STORAGE_KEY = "vivaiq_theme";
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+// The saved preference lives in localStorage; this tiny store lets React read it
+// without a setState-in-effect round trip and stays hydration-safe (server = dark).
+const listeners = new Set<() => void>();
+
+function subscribe(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function readTheme(): Theme {
+  try {
+    return localStorage.getItem(STORAGE_KEY) === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function writeTheme(theme: Theme) {
+  try {
+    localStorage.setItem(STORAGE_KEY, theme);
+  } catch {
+    // Storage blocked (private mode); the theme still applies for this page view.
+  }
+  listeners.forEach((l) => l());
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("dark");
-  const [mounted, setMounted] = useState(false);
+  const theme = useSyncExternalStore(subscribe, readTheme, () => "dark" as Theme);
 
   useEffect(() => {
-    // Check saved preference or system preference (default to dark as in screenshot)
-    const saved = localStorage.getItem("vivaiq_theme") as Theme | null;
-    const initialTheme: Theme = saved === "light" ? "light" : "dark";
-    setThemeState(initialTheme);
-    applyTheme(initialTheme);
-    setMounted(true);
-  }, []);
-
-  const applyTheme = (t: Theme) => {
     const root = document.documentElement;
-    if (t === "dark") {
-      root.classList.add("dark");
-      root.classList.remove("light");
-    } else {
-      root.classList.add("light");
-      root.classList.remove("dark");
-    }
-    localStorage.setItem("vivaiq_theme", t);
-  };
+    root.classList.toggle("light", theme === "light");
+    root.classList.toggle("dark", theme === "dark");
+  }, [theme]);
 
-  const setTheme = (t: Theme) => {
-    setThemeState(t);
-    applyTheme(t);
-  };
+  const setTheme = useCallback((t: Theme) => writeTheme(t), []);
+  const toggleTheme = useCallback(() => writeTheme(readTheme() === "dark" ? "light" : "dark"), []);
 
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-  };
-
-  return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>{children}</ThemeContext.Provider>;
 }
 
 export function useTheme() {

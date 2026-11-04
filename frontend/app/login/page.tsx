@@ -4,10 +4,43 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import BrandLogo from "@/components/BrandLogo";
-import ThemeToggle from "@/components/ThemeToggle";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
-import { Activity, ArrowRight, ShieldCheck } from "lucide-react";
+import {
+  Mail,
+  Lock,
+  ArrowRight,
+  ShieldCheck,
+  Mic,
+  LayoutDashboard,
+  Activity,
+  Users,
+} from "lucide-react";
+
+const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+const demoCards = [
+  {
+    role: "teacher" as const,
+    label: "Teacher Account",
+    email: "teacher@vivaiq.edu",
+    password: "TeacherPass123!",
+    icon: LayoutDashboard,
+    color: "var(--accent-1)",
+    glow: "rgba(74, 158, 255, 0.15)",
+    description: "Review sessions, override grades, upload syllabus",
+  },
+  {
+    role: "student" as const,
+    label: "Student Account",
+    email: "alex@student.edu",
+    password: "StudentPass123!",
+    icon: Mic,
+    color: "var(--accent-2)",
+    glow: "rgba(59, 240, 170, 0.15)",
+    description: "Start a voice viva, hear your feedback",
+  },
+];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,12 +49,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async (e?: React.FormEvent, customEmail?: string, customPass?: string) => {
+  const handleLogin = async (e?: React.FormEvent, override?: { email: string; password: string }) => {
     if (e) e.preventDefault();
-    const targetEmail = customEmail || email;
-    const targetPass = customPass || password;
+    const creds = override ?? { email, password };
 
-    if (!targetEmail || !targetPass) {
+    if (!creds.email || !creds.password) {
       setError("Please provide your school email and password.");
       return;
     }
@@ -29,179 +61,273 @@ export default function LoginPage() {
     try {
       setLoading(true);
       setError(null);
-      await api.login(targetEmail, targetPass);
+      await api.login(creds.email, creds.password);
       const user = await api.getMe();
-      if (user.role === "teacher" || user.role === "admin") {
-        router.push("/teacher");
-      } else {
-        router.push("/student");
-      }
-    } catch (err: any) {
-      setError(err.message || "HTTP 502 Bad Gateway");
+      router.push(user.role === "teacher" || user.role === "admin" ? "/teacher" : "/student");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Login failed. Check credentials.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDemoFill = (role: "teacher" | "student") => {
-    if (role === "teacher") {
-      setEmail("teacher@vivaiq.edu");
-      setPassword("teacher123");
-      handleLogin(undefined, "teacher@vivaiq.edu", "teacher123");
-    } else {
-      setEmail("student@vivaiq.edu");
-      setPassword("student123");
-      handleLogin(undefined, "student@vivaiq.edu", "student123");
-    }
-  };
-
   return (
-    <div className="min-h-screen flex flex-col lg:flex-row w-full bg-[var(--bg-surface)] text-[var(--text-primary)]">
-      {/* ------------------------------------------------------------- */}
-      {/* Left Pane: Editorial Brand & Manifesto Screen                 */}
-      {/* ------------------------------------------------------------- */}
-      <div className="w-full lg:w-1/2 min-h-[460px] lg:min-h-screen bg-[var(--bg-hero)] p-8 sm:p-12 lg:p-16 flex flex-col justify-between relative overflow-hidden">
-        {/* Brand Header */}
-        <div className="z-10">
-          <BrandLogo size="md" />
+    <div
+      className="min-h-screen flex overflow-hidden"
+      style={{ background: "var(--bg-base)" }}
+    >
+      {/* ── Left: Brand Panel ── */}
+      <div
+        className="force-dark hidden lg:flex w-[45%] relative flex-col justify-between p-14 overflow-hidden text-[var(--text-primary)]"
+        style={{
+          background: "linear-gradient(145deg, #070d14 0%, #0c1420 60%, #111e2d 100%)",
+          borderRight: "1px solid var(--border-subtle)",
+        }}
+      >
+        {/* Ambient orbs */}
+        <div
+          className="ambient-orb"
+          style={{
+            width: 400,
+            height: 400,
+            top: -100,
+            right: -100,
+            background: "var(--accent-1)",
+            opacity: 0.12,
+          }}
+        />
+        <div
+          className="ambient-orb"
+          style={{
+            width: 300,
+            height: 300,
+            bottom: 80,
+            left: -80,
+            background: "var(--accent-2)",
+            opacity: 0.08,
+          }}
+        />
+        <div className="grid-pattern absolute inset-0 pointer-events-none" />
+
+        {/* Logo */}
+        <div className="relative z-10">
+          <BrandLogo size="md" href="/" />
         </div>
 
-        {/* Hero Editorial Copy */}
-        <div className="my-auto py-12 z-10 max-w-lg">
-          <div className="flex items-center gap-2.5">
-            <span className="w-6 h-[1.5px] bg-[var(--text-secondary)] opacity-80" />
-            <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">
+        {/* Hero text */}
+        <div className="relative z-10 space-y-6 my-auto">
+          <div className="inline-flex items-center gap-2">
+            <span
+              className="w-6 h-px"
+              style={{ background: "var(--text-muted)" }}
+            />
+            <span
+              className="text-[10px] font-semibold uppercase tracking-[0.2em]"
+              style={{ color: "var(--text-muted)" }}
+            >
               For the moments that matter
             </span>
           </div>
 
-          <h1 className="font-editorial text-4xl sm:text-5xl lg:text-6xl text-[var(--text-primary)] font-normal tracking-tight leading-[1.08] mt-6">
-            Make room<br />
-            for what they<br />
-            <em className="italic font-normal">understand.</em>
+          <h1
+            className="font-editorial text-5xl lg:text-6xl font-normal tracking-tight leading-[1.05]"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Make room
+            <br />
+            for what they
+            <br />
+            <em
+              className="italic font-light"
+              style={{
+                background: "linear-gradient(135deg, var(--accent-1), var(--accent-2))",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+              }}
+            >
+              understand.
+            </em>
           </h1>
 
-          <p className="text-sm sm:text-base text-[var(--text-secondary)] mt-6 leading-relaxed max-w-sm">
-            A thoughtful viva experience for students, with a clear and reviewable record for teachers.
+          <p className="text-sm leading-relaxed max-w-sm" style={{ color: "var(--text-secondary)" }}>
+            A thoughtful viva experience for students, with a clear and reviewable record for
+            teachers. Powered by grounded AI voice and explainable acoustic assessment.
           </p>
         </div>
 
-        {/* Ambient Concentric Wave Motif */}
-        <div className="ambient-rings" aria-hidden="true" />
-
-        {/* Footer Badges */}
-        <div className="flex flex-wrap items-center gap-6 pt-6 z-10 text-xs text-[var(--text-secondary)]">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-[var(--text-secondary)]" />
-            <span>Teacher-reviewed, always</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-[var(--text-secondary)]" />
-            <span>Service status operational</span>
-          </div>
+        {/* Trust badges */}
+        <div className="relative z-10 flex flex-col gap-3">
+          {[
+            { icon: ShieldCheck, label: "Teacher-reviewed, always" },
+            { icon: Activity, label: "Advisory authenticity signals" },
+            { icon: Users, label: "GDPR-compliant data handling" },
+          ].map(({ icon: Icon, label }) => (
+            <div key={label} className="flex items-center gap-3">
+              <div
+                className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+                style={{
+                  background: "rgba(74, 158, 255, 0.08)",
+                  border: "1px solid rgba(74, 158, 255, 0.15)",
+                }}
+              >
+                <Icon className="w-3.5 h-3.5" style={{ color: "var(--accent-1)" }} />
+              </div>
+              <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                {label}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* ------------------------------------------------------------- */}
-      {/* Right Pane: Authentication Form Area                          */}
-      {/* ------------------------------------------------------------- */}
-      <div className="w-full lg:w-1/2 min-h-screen bg-[var(--bg-surface)] p-6 sm:p-10 lg:p-16 flex flex-col justify-between relative">
-        {/* Top bar with Theme Switcher */}
-        <div className="w-full flex justify-end">
-          <ThemeToggle />
+      {/* ── Right: Auth Form ── */}
+      <div
+        className="flex-1 flex flex-col items-center justify-center p-6 sm:p-10 relative overflow-y-auto"
+        style={{ background: "var(--bg-surface)" }}
+      >
+        {/* Mobile logo */}
+        <div className="lg:hidden mb-8">
+          <BrandLogo size="lg" href="/" />
         </div>
 
-        {/* Centered Form */}
-        <div className="w-full max-w-[390px] mx-auto my-auto py-8 space-y-6">
-          <div className="space-y-1.5">
-            <span className="text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)] block">
+        <div className="w-full max-w-[400px] space-y-6">
+          {/* Header */}
+          <div className="space-y-2">
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.18em]"
+              style={{ color: "var(--text-muted)" }}
+            >
               Welcome back
-            </span>
-            <h2 className="font-editorial text-3xl sm:text-4xl text-[var(--text-primary)] font-normal tracking-tight">
+            </p>
+            <h2
+              className="font-editorial text-3xl sm:text-4xl font-normal tracking-tight"
+              style={{ color: "var(--text-primary)" }}
+            >
               Sign in to VivaIQ
             </h2>
-            <p className="text-xs sm:text-sm text-[var(--text-secondary)] mt-1">
-              Use your school account to continue to your workspace.
+            <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+              Use your school account credentials to continue.
             </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleLogin} className="space-y-4 pt-1">
+          <form onSubmit={handleLogin} className="space-y-4">
             <Input
               label="Email address"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@school.edu"
+              icon={<Mail className="w-4 h-4" />}
               required
             />
-
             <Input
               label="Password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
+              icon={<Lock className="w-4 h-4" />}
               required
             />
 
             {error && (
-              <div className="p-3.5 rounded-xl bg-[var(--error-bg)] border border-[var(--error-border)] text-xs font-medium text-[var(--error-text)] animate-in fade-in duration-200">
+              <div
+                className="p-3.5 rounded-xl text-sm font-medium animate-fade-in-up"
+                style={{
+                  background: "var(--error-bg)",
+                  border: "1px solid var(--error-border)",
+                  color: "var(--error-text)",
+                }}
+              >
                 {error}
               </div>
             )}
 
             <Button
               type="submit"
-              variant="primary"
               size="md"
               isLoading={loading}
-              className="w-full justify-between px-6"
+              className="w-full justify-between"
             >
               <span>Continue</span>
-              <ArrowRight className="w-4 h-4 ml-auto" />
+              <ArrowRight className="w-4 h-4" />
             </Button>
           </form>
 
-          {/* Demo Autofill Buttons */}
-          <div className="space-y-2 pt-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="md"
-              onClick={() => handleDemoFill("teacher")}
-              className="w-full text-xs font-semibold"
-            >
-              Fill teacher demo account
-            </Button>
+          {/* Demo accounts: only in demo builds, so credentials never ship to production. */}
+          {isDemoMode && (
+            <>
+            {/* Divider */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px" style={{ background: "var(--border-subtle)" }} />
+              <span className="text-[11px] font-medium" style={{ color: "var(--text-muted)" }}>
+                OR TRY A DEMO
+              </span>
+              <div className="flex-1 h-px" style={{ background: "var(--border-subtle)" }} />
+            </div>
 
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => handleDemoFill("student")}
-              className="w-full text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            >
-              Fill student demo account (Alex)
-            </Button>
-          </div>
+            {/* Demo Quick-Access Cards */}
+            <div className="grid grid-cols-2 gap-3">
+              {demoCards.map(({ role, label, email: demoEmail, password: demoPass, icon: Icon, color, glow, description }) => (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => {
+                    setEmail(demoEmail);
+                    setPassword(demoPass);
+                    handleLogin(undefined, { email: demoEmail, password: demoPass });
+                  }}
+                  className="group p-4 rounded-2xl text-left transition-all duration-200 cursor-pointer"
+                  style={{
+                    background: glow,
+                    border: `1px solid ${color}30`,
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.border = `1px solid ${color}60`;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.border = `1px solid ${color}30`;
+                  }}
+                >
+                  <div
+                    className="w-8 h-8 rounded-xl flex items-center justify-center mb-3"
+                    style={{ background: `${color}20`, border: `1px solid ${color}30` }}
+                  >
+                    <Icon className="w-4 h-4" style={{ color }} />
+                  </div>
+                  <div className="text-xs font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+                    {label}
+                  </div>
+                  <div className="text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                    {description}
+                  </div>
+                </button>
+              ))}
+            </div>
+            </>
+          )}
 
-          {/* Divider */}
-          <div className="w-full h-[1px] bg-[var(--border-default)] pt-0 my-4" />
-
-          {/* Advisory Guardrail Footnote */}
-          <div className="flex items-start gap-2.5 text-left pt-1">
-            <ShieldCheck className="w-4 h-4 text-[var(--text-secondary)] shrink-0 mt-0.5" />
-            <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
-              Your assessment supports a conversation. It is advisory only, never a cheating detector or a final judgement.
+          {/* Advisory footer */}
+          <div
+            className="flex items-start gap-3 p-3.5 rounded-xl"
+            style={{
+              background: "rgba(74, 158, 255, 0.04)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" style={{ color: "var(--accent-2)" }} />
+            <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-muted)" }}>
+              Your assessment is advisory only — never an automated cheating accusation or final
+              judgement. Teacher review is always required.
             </p>
           </div>
-        </div>
 
-        {/* Footer Administrator Link */}
-        <div className="text-center pb-2">
-          <p className="text-xs text-[var(--text-muted)]">
-            Need access? Ask your school administrator.
+          <p className="text-center text-xs" style={{ color: "var(--text-muted)" }}>
+            Need access?{" "}
+            <span style={{ color: "var(--text-secondary)" }}>
+              Ask your school administrator.
+            </span>
           </p>
         </div>
       </div>

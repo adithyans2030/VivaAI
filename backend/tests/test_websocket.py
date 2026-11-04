@@ -170,6 +170,7 @@ def test_websocket_viva_flow(
             ws.send_json({"type": "end_session", "payload": {}})
             msg3 = ws.receive_json()
             assert msg3["type"] == "session_complete"
-            assert msg3["payload"]["total_score"] > 0
+            # Only the warm-up was answered, and it never counts: the session is not graded.
+            assert msg3["payload"]["total_score"] is None
 
     app.dependency_overrides.clear()

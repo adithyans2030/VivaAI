@@ -2,174 +2,398 @@
 
 import Link from "next/link";
 import AudioOrb from "@/components/AudioOrb";
-import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import {
   Mic,
   LayoutDashboard,
   ShieldCheck,
   Brain,
-  Sparkles,
   ArrowRight,
-  FileCheck,
   Cpu,
-  CheckCircle2,
-  Lock,
   Activity,
+  BookOpen,
+  Zap,
+  Lock,
+  ChevronRight,
 } from "lucide-react";
+
+const features = [
+  {
+    icon: Brain,
+    title: "RAG-Grounded Questioning",
+    description:
+      "Every question strictly grounded in your uploaded syllabus, lecture notes, and textbooks. Zero hallucinated prompts.",
+    color: "var(--accent-1)",
+    glow: "rgba(74, 158, 255, 0.2)",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Advisory Authenticity",
+    description:
+      "Acoustic cadence analysis, pause rhythms, and 4-gram overlap signals. Always advisory — never an automated verdict.",
+    color: "var(--accent-2)",
+    glow: "rgba(59, 240, 170, 0.2)",
+  },
+  {
+    icon: Cpu,
+    title: "Local or Cloud AI",
+    description:
+      "Runs on consumer GPUs with Ollama or connects to Gemini/Grok. Full provider-agnostic architecture.",
+    color: "var(--accent-3)",
+    glow: "rgba(155, 109, 255, 0.2)",
+  },
+];
+
+const stats = [
+  { value: "6", label: "Authenticity signals", unit: "" },
+  { value: "4", label: "Scoring dimensions", unit: "" },
+  { value: "<800", label: "MB VRAM required", unit: "MB" },
+  { value: "100%", label: "Teacher-reviewed", unit: "" },
+];
 
 export default function HomePage() {
   return (
-    <div className="relative min-h-[calc(100vh-65px)] flex flex-col justify-between overflow-hidden">
-      {/* Editorial Hero Section */}
-      <section className="relative px-6 pt-12 md:pt-20 pb-16 max-w-7xl mx-auto w-full">
-        {/* Ambient Wave Rings Motif */}
-        <div className="ambient-rings opacity-70 hidden md:block" />
+    <div className="relative min-h-screen overflow-hidden">
+      {/* ── Ambient background orbs ── */}
+      <div
+        className="ambient-orb ambient-orb-blue"
+        style={{ width: 600, height: 600, top: "-200px", right: "-150px", opacity: 0.15 }}
+      />
+      <div
+        className="ambient-orb ambient-orb-violet"
+        style={{ width: 400, height: 400, bottom: "200px", left: "-100px", opacity: 0.1 }}
+      />
+      <div
+        className="ambient-orb ambient-orb-green"
+        style={{ width: 300, height: 300, top: "60%", right: "10%", opacity: 0.08 }}
+      />
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
-          {/* Left Column: Manifesto & Value Proposition */}
-          <div className="lg:col-span-7 space-y-6 text-left">
-            <div className="flex items-center gap-3">
-              <span className="w-6 h-px bg-[var(--text-secondary)] opacity-60" />
-              <Badge variant="eyebrow">For the moments that matter</Badge>
+      {/* ── Grid overlay ── */}
+      <div className="grid-pattern absolute inset-0 pointer-events-none" />
+
+      {/* ════════════════════════════════════════════════════════════
+          HERO
+      ════════════════════════════════════════════════════════════ */}
+      <section className="relative pt-20 pb-24 px-5 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+          {/* ── Left: Copy ── */}
+          <div className="lg:col-span-6 space-y-8">
+            {/* Pill badge */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[var(--border-emphasis)] bg-[var(--bg-card)]">
+              <span
+                className="w-1.5 h-1.5 rounded-full animate-beacon"
+                style={{ background: "var(--accent-2)" }}
+              />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--text-accent)]">
+                AI Voice Examiner — Beta
+              </span>
             </div>
 
-            <h1 className="font-editorial text-4xl sm:text-6xl md:text-7xl font-normal text-[var(--text-primary)] leading-[1.08] tracking-tight">
-              Make room <br />
-              for what they <br />
-              <em className="italic font-normal">understand.</em>
-            </h1>
+            {/* Headline */}
+            <div className="space-y-2">
+              <h1
+                className="font-editorial text-5xl sm:text-6xl lg:text-7xl font-normal leading-[1.05] tracking-tight"
+                style={{ color: "var(--text-primary)" }}
+              >
+                Make room
+                <br />
+                for what they
+                <br />
+                <em
+                  className="italic font-light not-italic"
+                  style={{
+                    background: "linear-gradient(135deg, var(--accent-1), var(--accent-2))",
+                    WebkitBackgroundClip: "text",
+                    WebkitTextFillColor: "transparent",
+                  }}
+                >
+                  understand.
+                </em>
+              </h1>
+            </div>
 
-            <p className="text-base sm:text-lg text-[var(--text-secondary)] max-w-xl leading-relaxed">
-              A thoughtful viva experience for students, with a clear and reviewable record for teachers. Powered by grounded AI voice and explainable acoustic assessment.
+            {/* Subtitle */}
+            <p
+              className="text-base sm:text-lg leading-relaxed max-w-md"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              A production-grade AI viva voce platform. Real voice interactions, grounded grading,
+              and advisory authenticity analysis — without replacing teacher judgment.
             </p>
 
-            {/* CTAs */}
-            <div className="flex flex-wrap items-center gap-3.5 pt-3">
+            {/* CTA row */}
+            <div className="flex flex-wrap items-center gap-3 pt-2">
               <Link href="/student">
                 <Button size="lg" className="group">
-                  <Mic className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                  Launch Student Viva
-                  <ArrowRight className="w-4 h-4 ml-1" />
+                  <Mic className="w-4 h-4 transition-transform group-hover:scale-110" />
+                  Start Student Viva
+                  <ArrowRight className="w-4 h-4 ml-1 transition-transform group-hover:translate-x-0.5" />
                 </Button>
               </Link>
 
               <Link href="/teacher">
-                <Button variant="outline" size="lg">
-                  <LayoutDashboard className="w-4 h-4 text-[var(--accent-primary)]" />
-                  Teacher Review Portal
+                <Button variant="secondary" size="lg">
+                  <LayoutDashboard className="w-4 h-4" style={{ color: "var(--accent-1)" }} />
+                  Teacher Portal
                 </Button>
               </Link>
 
               <Link href="/login">
                 <Button variant="ghost" size="lg">
-                  Demo Sign-In →
+                  Demo Sign-In
+                  <ChevronRight className="w-4 h-4" />
                 </Button>
               </Link>
             </div>
 
-            {/* Guardrail Disclaimer */}
-            <div className="flex flex-wrap items-center gap-6 pt-4 text-xs text-[var(--text-muted)]">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Teacher-reviewed, always</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Activity className="w-4 h-4 text-[var(--accent-primary)]" />
-                <span>Advisory authenticity analysis</span>
-              </div>
+            {/* Trust badges */}
+            <div className="flex flex-wrap items-center gap-5 pt-1">
+              {[
+                { icon: ShieldCheck, text: "Teacher-reviewed, always", color: "var(--accent-2)" },
+                { icon: Activity, text: "Advisory signals only", color: "var(--accent-1)" },
+                { icon: Lock, text: "Local or cloud AI", color: "var(--accent-3)" },
+              ].map(({ icon: Icon, text, color }) => (
+                <div key={text} className="flex items-center gap-1.5">
+                  <Icon className="w-3.5 h-3.5" style={{ color }} />
+                  <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                    {text}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Right Column: Audio Orb Live Preview Showcase */}
-          <div className="lg:col-span-5 flex justify-center">
-            <div className="w-full max-w-md p-8 rounded-3xl bg-[var(--bg-card)] border border-[var(--border-default)] shadow-xl relative overflow-hidden">
-              {/* Subtle status eyebrow */}
-              <div className="flex items-center justify-between pb-6 border-b border-[var(--border-default)]">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                    Voice Viva In Progress
+          {/* ── Right: Live Preview Card ── */}
+          <div className="lg:col-span-6 flex justify-center lg:justify-end">
+            <div
+              className="w-full max-w-[420px] rounded-3xl overflow-hidden relative"
+              style={{
+                background:
+                  "linear-gradient(145deg, rgba(17,30,45,0.95) 0%, rgba(11,20,32,0.98) 100%)",
+                border: "1px solid var(--border-emphasis)",
+                boxShadow:
+                  "0 32px 80px -16px rgba(0,0,0,0.7), 0 0 0 1px var(--border-subtle), inset 0 1px 0 rgba(255,255,255,0.06)",
+              }}
+            >
+              {/* Card header */}
+              <div
+                className="flex items-center justify-between px-5 py-4 border-b"
+                style={{ borderColor: "var(--border-subtle)" }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2 h-2 rounded-full animate-beacon" style={{ background: "var(--accent-2)" }} />
+                  <span
+                    className="text-[11px] font-semibold uppercase tracking-[0.14em]"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    Viva In Progress
                   </span>
                 </div>
-                <span className="text-[11px] text-[var(--text-muted)] font-mono">
-                  TURN 2 OF 4
-                </span>
+                <div
+                  className="font-mono text-[11px] px-2.5 py-1 rounded-lg"
+                  style={{
+                    color: "var(--accent-1)",
+                    background: "rgba(74, 158, 255, 0.1)",
+                    border: "1px solid rgba(74, 158, 255, 0.2)",
+                  }}
+                >
+                  TURN 2 / 4
+                </div>
               </div>
 
-              {/* The Harmonic Orb */}
-              <div className="py-6 flex justify-center">
+              {/* Orb */}
+              <div className="py-8 flex justify-center">
                 <AudioOrb state="examiner_speaking" audioLevel={0.65} />
               </div>
 
-              {/* Spoken Turn Excerpt */}
-              <div className="p-4 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] space-y-1.5 text-left">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--accent-primary)] block">
-                  Examiner Question:
-                </span>
-                <p className="text-xs text-[var(--text-primary)] font-medium leading-relaxed">
-                  "Explain how mutual exclusion prevents race conditions in multi-threaded programs."
-                </p>
+              {/* Question card */}
+              <div className="px-5 pb-5">
+                <div
+                  className="p-4 rounded-2xl"
+                  style={{
+                    background: "rgba(74, 158, 255, 0.06)",
+                    border: "1px solid rgba(74, 158, 255, 0.15)",
+                  }}
+                >
+                  <div
+                    className="text-[10px] font-semibold uppercase tracking-[0.14em] mb-2"
+                    style={{ color: "var(--accent-1)" }}
+                  >
+                    Examiner Question
+                  </div>
+                  <p
+                    className="text-sm leading-relaxed"
+                    style={{ color: "var(--text-primary)" }}
+                  >
+                    &ldquo;Explain how mutual exclusion prevents race conditions in multi-threaded programs.&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              {/* Waveform footer */}
+              <div
+                className="flex items-center justify-center gap-[3px] px-5 pb-5 h-12"
+                aria-hidden="true"
+              >
+                {[4, 7, 5, 9, 6, 11, 8, 5, 7, 9, 6, 4, 8, 10, 6, 5, 7, 9].map((h, i) => (
+                  <div
+                    key={i}
+                    className="animate-wave-bar rounded-full"
+                    style={{
+                      width: 3,
+                      height: h * 2,
+                      background: "linear-gradient(to top, var(--accent-1), var(--accent-2))",
+                      animationDelay: `${i * 0.07}s`,
+                      opacity: 0.6,
+                    }}
+                  />
+                ))}
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Feature Pillars */}
-      <section className="px-6 py-16 border-t border-[var(--border-default)] max-w-7xl mx-auto w-full">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Card 1 */}
-          <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] space-y-3 text-left">
-            <div className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)]">
-              <Brain className="w-5 h-5" />
+      {/* ════════════════════════════════════════════════════════════
+          STATS
+      ════════════════════════════════════════════════════════════ */}
+      <section
+        className="border-y px-5 py-12"
+        style={{ borderColor: "var(--border-subtle)", background: "var(--bg-surface)" }}
+      >
+        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-8">
+          {stats.map(({ value, label }) => (
+            <div key={label} className="text-center space-y-1">
+              <div
+                className="text-3xl font-bold tracking-tight"
+                style={{
+                  background: "linear-gradient(135deg, var(--accent-1), var(--accent-2))",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
+                {value}
+              </div>
+              <div className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
+                {label}
+              </div>
             </div>
-            <h3 className="font-editorial text-lg font-normal text-[var(--text-primary)]">
-              RAG-Grounded Questioning
-            </h3>
-            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Examinations strictly cite topics, syllabus notes, and textbook excerpts uploaded by course professors. No generic hallucinated prompts.
-            </p>
-          </div>
+          ))}
+        </div>
+      </section>
 
-          {/* Card 2 */}
-          <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] space-y-3 text-left">
-            <div className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)]">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <h3 className="font-editorial text-lg font-normal text-[var(--text-primary)]">
-              Advisory Authenticity Engine
-            </h3>
-            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Analyzes conversational pause rhythms, 4-gram textbook overlap, and vocal cadence against baseline speech. Always advisory, never auto-penalizing.
-            </p>
+      {/* ════════════════════════════════════════════════════════════
+          FEATURES
+      ════════════════════════════════════════════════════════════ */}
+      <section className="relative px-5 py-24 max-w-7xl mx-auto">
+        {/* Section header */}
+        <div className="text-center space-y-3 mb-14">
+          <div
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold uppercase tracking-[0.14em]"
+            style={{
+              color: "var(--text-muted)",
+              border: "1px solid var(--border-subtle)",
+            }}
+          >
+            <Zap className="w-3 h-3" />
+            Platform Features
           </div>
+          <h2
+            className="font-editorial text-3xl sm:text-4xl font-normal tracking-tight"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Built for real academic rigor
+          </h2>
+          <p className="text-sm max-w-lg mx-auto leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            Every design decision prioritizes fairness to students and transparency to teachers.
+          </p>
+        </div>
 
-          {/* Card 3 */}
-          <div className="p-6 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] space-y-3 text-left">
-            <div className="w-10 h-10 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)] flex items-center justify-center text-[var(--accent-primary)]">
-              <Cpu className="w-5 h-5" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {features.map(({ icon: Icon, title, description, color, glow }) => (
+            <div
+              key={title}
+              className="glass-card p-6 rounded-2xl space-y-4"
+            >
+              <div
+                className="w-11 h-11 rounded-xl flex items-center justify-center"
+                style={{
+                  background: `${glow}`,
+                  border: `1px solid ${color}30`,
+                  boxShadow: `0 0 20px ${glow}`,
+                }}
+              >
+                <Icon className="w-5 h-5" style={{ color }} />
+              </div>
+              <h3
+                className="font-semibold text-base tracking-tight"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {title}
+              </h3>
+              <p className="text-xs leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+                {description}
+              </p>
             </div>
-            <h3 className="font-editorial text-lg font-normal text-[var(--text-primary)]">
-              Local Hardware or Cloud AI
-            </h3>
-            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Runs locally on consumer GPUs (NVIDIA GTX 1650 4GB) with local Ollama (`gemma2:2b`), or connects smoothly to Gemini and Grok.
-            </p>
+          ))}
+        </div>
+      </section>
+
+      {/* ════════════════════════════════════════════════════════════
+          CTA BAND
+      ════════════════════════════════════════════════════════════ */}
+      <section
+        className="px-5 py-16 text-center relative overflow-hidden"
+        style={{
+          background:
+            "linear-gradient(145deg, rgba(74,158,255,0.08) 0%, rgba(59,240,170,0.06) 50%, rgba(155,109,255,0.05) 100%)",
+          borderTop: "1px solid var(--border-subtle)",
+          borderBottom: "1px solid var(--border-subtle)",
+        }}
+      >
+        <div className="max-w-2xl mx-auto space-y-6">
+          <h2
+            className="font-editorial text-3xl sm:text-4xl font-normal tracking-tight"
+            style={{ color: "var(--text-primary)" }}
+          >
+            Ready to conduct a fairer viva?
+          </h2>
+          <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            Set up takes minutes. Sign in and run your first AI-assisted voice examination today.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <Link href="/login">
+              <Button size="lg" className="group">
+                Get Started Now
+                <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-0.5 transition-transform" />
+              </Button>
+            </Link>
+            <Link href="/teacher">
+              <Button variant="outline" size="lg">
+                <BookOpen className="w-4 h-4" />
+                See Teacher Portal
+              </Button>
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Advisory Policy Banner & Footer */}
-      <footer className="border-t border-[var(--border-default)] py-8 px-6 text-center text-xs text-[var(--text-muted)] space-y-2">
-        <div className="flex items-center justify-center gap-2 max-w-xl mx-auto">
-          <ShieldCheck className="w-4 h-4 text-[var(--accent-primary)] shrink-0" />
+      {/* ════════════════════════════════════════════════════════════
+          FOOTER
+      ════════════════════════════════════════════════════════════ */}
+      <footer className="py-8 px-5 text-center space-y-3" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+        <div
+          className="flex items-center justify-center gap-2 max-w-xl mx-auto text-xs"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <ShieldCheck className="w-4 h-4 shrink-0" style={{ color: "var(--accent-2)" }} />
           <span>
-            Your assessment supports a conversation. It is advisory only, never a cheating detector or a final judgement.
+            Authenticity signals are advisory only — never an automated accusation or final verdict.
+            Teacher review is always required.
           </span>
         </div>
-        <div className="pt-2 text-[11px] opacity-75">
-          VivaIQ Oral Viva Voce System • Next.js, FastAPI, faster-whisper, and ChromaDB.
+        <div className="text-[11px]" style={{ color: "var(--text-muted)", opacity: 0.6 }}>
+          VivaIQ Oral Viva Voce System · Next.js · FastAPI · faster-whisper · ChromaDB
         </div>
       </footer>
     </div>

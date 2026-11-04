@@ -10,6 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.models.session import VivaSession
+from app.models.subject import Subject
 from app.models.user import User, UserRole
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
@@ -60,3 +62,27 @@ def require_role(roles: List[UserRole]) -> Callable:
         return current_user
 
     return role_checker
+
+
+async def ensure_session_access(db: AsyncSession, user: User, session: VivaSession) -> None:
+    """Students may access only their own sessions; teachers only sessions in subjects they own.
+
+    One rule for every session read or write (reports, overrides, exports, audio, tickets),
+    so transcripts and recordings are never visible to unrelated teachers.
+    """
+    if user.role == UserRole.ADMIN:
+        return
+    if user.role == UserRole.STUDENT:
+        if session.student_id == user.id:
+            return
+    elif user.role == UserRole.TEACHER:
+        owner = (await db.execute(select(Subject.teacher_id).where(Subject.id == session.subject_id))).scalar()
+        if owner == user.id:
+            return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this viva session")
+
+
+def ensure_subject_owner(user: User, subject: Subject) -> None:
+    """Only the subject's owning teacher (or an admin) may change its documents."""
+    if user.role != UserRole.ADMIN and subject.teacher_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage subjects you own")

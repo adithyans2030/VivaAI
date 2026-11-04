@@ -7,12 +7,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user
+from app.api.deps import ensure_session_access, get_current_user
 from app.core.database import get_db
 from app.models.session import AuthenticityLikelihood, SessionStatus, VivaSession
 from app.models.subject import Subject
 from app.models.user import User, UserRole
-from app.schemas.session import ConsentUpdate, SessionCreate, SessionDetailResponse, SessionResponse
+from app.schemas.session import (
+    ConsentUpdate,
+    SessionCreate,
+    SessionDetailResponse,
+    SessionListItem,
+    SessionResponse,
+)
+from app.services import auth_state
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -73,7 +80,7 @@ async def update_session_consent(
     return session
 
 
-@router.get("", response_model=List[SessionResponse])
+@router.get("", response_model=List[SessionListItem])
 async def list_sessions(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -81,13 +88,20 @@ async def list_sessions(
     student_id: Optional[str] = Query(None),
     status_filter: Optional[SessionStatus] = Query(None),
     flag_level: Optional[AuthenticityLikelihood] = Query(None),
-) -> List[VivaSession]:
+) -> List[SessionListItem]:
     """List sessions with optional filtering. Students only see their own sessions."""
-    stmt = select(VivaSession).order_by(VivaSession.created_at.desc())
+    stmt = (
+        select(VivaSession)
+        .options(selectinload(VivaSession.student), selectinload(VivaSession.subject))
+        .order_by(VivaSession.created_at.desc())
+    )
 
     if current_user.role == UserRole.STUDENT:
         stmt = stmt.where(VivaSession.student_id == current_user.id)
-    elif student_id:
+    elif current_user.role == UserRole.TEACHER:
+        # Teachers see only sessions in subjects they own.
+        stmt = stmt.join(Subject, Subject.id == VivaSession.subject_id).where(Subject.teacher_id == current_user.id)
+    if student_id and current_user.role != UserRole.STUDENT:
         stmt = stmt.where(VivaSession.student_id == student_id)
 
     if subject_id:
@@ -98,7 +112,16 @@ async def list_sessions(
         stmt = stmt.where(VivaSession.overall_authenticity_likelihood == flag_level)
 
     result = await db.execute(stmt)
-    return list(result.scalars().all())
+    return [
+        SessionListItem.model_validate(s).model_copy(
+            update={
+                "student_name": s.student.full_name if s.student else None,
+                "subject_name": s.subject.name if s.subject else None,
+                "subject_code": s.subject.code if s.subject else None,
+            }
+        )
+        for s in result.scalars().all()
+    ]
 
 
 @router.get("/{session_id}", response_model=SessionDetailResponse)
@@ -123,6 +146,7 @@ async def get_session_details(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with id '{session_id}' not found",
         )
+    await ensure_session_access(db, current_user, session)
 
     if current_user.role == UserRole.STUDENT and session.student_id != current_user.id:
         raise HTTPException(
@@ -146,6 +170,11 @@ async def get_session_recovery_state(
     """Retrieve lightweight state payload for student reconnection recovery."""
     from app.services.session_state import get_viva_orchestrator
 
+    session = (await db.execute(select(VivaSession).where(VivaSession.id == session_id))).scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Session with id '{session_id}' not found")
+    await ensure_session_access(db, current_user, session)
+
     orchestrator = get_viva_orchestrator()
     try:
         return await orchestrator.get_recovery_state(db, session_id)
@@ -163,7 +192,6 @@ async def generate_websocket_ticket(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> dict:
     """Generate a single-use, 30-second ticket for authenticating WebSocket connections (WS-2.3)."""
-    from app.core.security import create_ws_ticket
 
     stmt = select(VivaSession).where(VivaSession.id == session_id)
     session = (await db.execute(stmt)).scalar_one_or_none()
@@ -172,6 +200,7 @@ async def generate_websocket_ticket(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with id '{session_id}' not found",
         )
+    await ensure_session_access(db, current_user, session)
 
     # Access control: Only the student or a teacher/admin can request a ticket
     if current_user.role == UserRole.STUDENT and session.student_id != current_user.id:
@@ -186,13 +215,10 @@ async def generate_websocket_ticket(
             detail=f"Cannot connect to a session that is already {session.status.value}",
         )
 
-    ticket = create_ws_ticket(
-        session_id=session.id,
-        user_id=current_user.id,
-        role=current_user.role.value,
-        expiry_seconds=30,
+    ticket = await auth_state.issue_ticket(
+        db, session_id=session.id, user_id=current_user.id, role=current_user.role.value
     )
-    return {"ticket": ticket, "expires_in": 30}
+    return {"ticket": ticket, "expires_in": auth_state.TICKET_TTL_SECONDS}
 
 
 @router.get("/{session_id}/turns/{turn_id}/audio")

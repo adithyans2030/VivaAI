@@ -2,6 +2,9 @@
  * Browser Audio Recorder with Real-time Stream Chunking & Silence Detection (VAD)
  */
 
+/** Safari < 14.1 only exposes the prefixed constructor. */
+export type WebkitWindow = Window & { webkitAudioContext?: typeof AudioContext };
+
 export interface AudioRecorderOptions {
   onAudioChunk: (chunkB64: string, chunkIndex: number) => void;
   onVolumeChange?: (volume: number) => void;
@@ -17,8 +20,10 @@ export class AudioStreamRecorder {
   private chunkIndex = 0;
   private startTime = 0;
   private animFrame: number | null = null;
-  private silenceTimer: any = null;
+  private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private isSpeaking = false;
+  private stopPromise: Promise<number> | null = null;
+  private pendingChunks: Promise<void> = Promise.resolve();
   private options: AudioRecorderOptions;
 
   constructor(options: AudioRecorderOptions) {
@@ -32,6 +37,8 @@ export class AudioStreamRecorder {
     this.chunkIndex = 0;
     this.startTime = Date.now();
     this.isSpeaking = false;
+    this.stopPromise = null;
+    this.pendingChunks = Promise.resolve();
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -41,8 +48,15 @@ export class AudioStreamRecorder {
       },
     });
 
+    // stop() may have been called while the permission prompt / device open was pending.
+    if (this.stopPromise) {
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+      return;
+    }
+
     // Audio Analysis for volume meter & silence detection
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    const AudioCtx = window.AudioContext || (window as WebkitWindow).webkitAudioContext;
     this.audioContext = new AudioCtx();
     this.analyser = this.audioContext.createAnalyser();
     this.analyser.fftSize = 256;
@@ -74,9 +88,7 @@ export class AudioStreamRecorder {
         // Candidate was speaking and has now paused
         this.silenceTimer = setTimeout(() => {
           if (this.isSpeaking) {
-            const durationMs = Date.now() - this.startTime;
-            this.options.onSpeechEnd?.(durationMs);
-            this.stop();
+            void this.stop().then((durationMs) => this.options.onSpeechEnd?.(durationMs));
           }
         }, this.options.silenceThresholdMs);
       }
@@ -93,37 +105,54 @@ export class AudioStreamRecorder {
 
     this.mediaRecorder = new MediaRecorder(this.stream, { mimeType });
 
-    this.mediaRecorder.ondataavailable = async (e) => {
-      if (e.data.size > 0) {
-        const arrayBuffer = await e.data.arrayBuffer();
-        const base64 = this.arrayBufferToBase64(arrayBuffer);
-        this.options.onAudioChunk(base64, this.chunkIndex++);
-      }
+    this.mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size === 0) return;
+      const index = this.chunkIndex++;
+      // Chain conversions so chunks are sent in order and stop() can await the last one.
+      this.pendingChunks = this.pendingChunks
+        .then(() => e.data.arrayBuffer())
+        .then((buf) => this.options.onAudioChunk(this.arrayBufferToBase64(buf), index))
+        .catch((err) => console.warn("Dropped audio chunk", index, err));
     };
 
     // Emit chunk every 350ms
     this.mediaRecorder.start(350);
   }
 
-  stop(): number {
+  /**
+   * Stop recording. Resolves with the answer duration once the final chunk has been
+   * emitted, so callers can send `speech_end` without racing the last audio_chunk.
+   * Safe to call more than once.
+   */
+  stop(): Promise<number> {
+    if (this.stopPromise) return this.stopPromise;
+
     if (this.animFrame) cancelAnimationFrame(this.animFrame);
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.animFrame = null;
+    this.silenceTimer = null;
+    const durationMs = Date.now() - this.startTime;
+    const recorder = this.mediaRecorder;
 
-    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
-      this.mediaRecorder.stop();
-    }
-
-    if (this.stream) {
-      this.stream.getTracks().forEach((t) => t.stop());
+    this.stopPromise = new Promise<number>((resolve) => {
+      if (!recorder || recorder.state === "inactive") {
+        resolve(durationMs);
+        return;
+      }
+      // The final dataavailable fires before onstop; wait for its conversion to be sent.
+      recorder.onstop = () => {
+        void this.pendingChunks.then(() => resolve(durationMs));
+      };
+      recorder.stop();
+    }).then((d) => {
+      this.stream?.getTracks().forEach((t) => t.stop());
       this.stream = null;
-    }
-
-    if (this.audioContext) {
-      this.audioContext.close().catch(() => {});
+      this.audioContext?.close().catch(() => {});
       this.audioContext = null;
-    }
-
-    return Date.now() - this.startTime;
+      this.analyser = null;
+      return d;
+    });
+    return this.stopPromise;
   }
 
   private arrayBufferToBase64(buffer: ArrayBuffer): string {

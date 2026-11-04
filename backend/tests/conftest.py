@@ -1,12 +1,19 @@
 """Pytest configuration and asynchronous fixtures."""
 
 import os
+import tempfile
 
 # Set testing environment variables before any app modules are loaded
 os.environ["ENVIRONMENT"] = "testing"
 os.environ["DEMO_MODE"] = "true"
 os.environ["STT_PROVIDER"] = "mock"
 os.environ["LLM_PROVIDER"] = "mock"
+
+# Keep uploads, recordings and the vector store out of the real ./data directory.
+os.environ["DATA_DIR"] = tempfile.mkdtemp(prefix="vivaiq-test-data-")
+os.environ["AUDIO_STORAGE_PATH"] = os.path.join(os.environ["DATA_DIR"], "audio")
+os.environ["DOCUMENT_STORAGE_PATH"] = os.path.join(os.environ["DATA_DIR"], "documents")
+os.environ["CHROMA_PERSIST_PATH"] = os.path.join(os.environ["DATA_DIR"], "chromadb")
 
 from typing import AsyncGenerator
 

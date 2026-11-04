@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.database import async_session_factory, init_db
 from app.core.errors import VivaIQError, vivaiq_exception_handler
 from app.core.logging import logger, setup_logging
+from app.services.rag import sync_documents_into_vector_store
 from app.services.retention import run_retention_forever
 from app.ws.session_handler import router as ws_router
 
@@ -25,13 +26,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Initializing VivaIQ database schema...")
     await init_db()
     retention_task = None
+    sync_task = None
     if settings.ENVIRONMENT != "testing":
         retention_task = asyncio.create_task(run_retention_forever(async_session_factory))
+        sync_task = asyncio.create_task(sync_documents_into_vector_store())
     logger.info("Database schema initialized. VivaIQ ready.")
     yield
     logger.info("Shutting down VivaIQ services...")
-    if retention_task:
-        retention_task.cancel()
+    for task in (retention_task, sync_task):
+        if task:
+            task.cancel()
 
 
 app = FastAPI(
@@ -44,13 +48,15 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
 )
 
-# CORS Middleware
+# CORS: explicit origins only. Auth uses bearer tokens (not cookies), so credentialed
+# requests are never needed and a wildcard can never expose a logged-in session.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS if isinstance(settings.CORS_ORIGINS, list) else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=list(settings.CORS_ORIGINS),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    expose_headers=["X-Request-ID", "Content-Disposition"],
 )
 
 

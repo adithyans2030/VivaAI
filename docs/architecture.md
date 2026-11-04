@@ -1,46 +1,88 @@
-# VivaIQ — Architecture & System Design
+# VivaIQ Architecture
 
-## 1. System Overview & Sizing for GTX 1650 (4GB VRAM)
-- **Local GPU Optimization**: Detected hardware is NVIDIA GeForce GTX 1650 (4GB VRAM). Large 14B models and `large-v3` Whisper cannot fit concurrently in 4GB VRAM.
-  - **STT Strategy**: `faster-whisper` configured default to `distil-small.en` or `base.en` on CUDA (`compute_type="float16"` or `"int8"`), or `cpu` fallback. This uses < 800MB VRAM and achieves sub-second latency for voice answers.
-  - **LLM Strategy**: Multi-provider architecture with:
-    - `GeminiProvider` (production cloud, ultrafast, zero local VRAM cost, default recommended for low-latency voice pipeline).
-    - `OllamaProvider` (local demo with `qwen2.5:3b` / `llama3.2:3b` at 4-bit quantization fitting in ~2GB VRAM).
-    - `GrokProvider` (xAI API integration).
-    - `MockProvider` (deterministic, instant responses for automated CI/unit tests without GPU/API keys).
-  - **TTS Strategy**: High-quality Piper/Kokoro local model adapter with streaming chunk output, alongside Web Speech API client-side fallback for zero latency and minimal server load when preferred.
-  - **Embeddings & Vector Store**: `sentence-transformers` with `bge-small-en-v1.5` (~130MB RAM/VRAM) + ChromaDB embedded (persistent local SQLite/parquet storage) with one collection per subject.
+## 1. System overview
 
-## 2. Backend Design Decisions
-- **Framework**: FastAPI with asynchronous endpoints (`async def`), Pydantic v2 Settings & Schemas, and SQLAlchemy 2.0.
-- **Database**: SQLite default for quick local demo & tests (`sqlite+aiosqlite:///./vivaiq.db`), fully switchable via `DATABASE_URL` to PostgreSQL for production.
-- **Authentication & Security**:
-  - Stateless JWT with Access Tokens (short-lived, 30m) & Refresh Tokens (7d).
-  - Password hashing with bcrypt / argon2.
-  - Role-Based Access Control (`student`, `teacher`, `admin`) via FastAPI dependency injection.
-  - Mandatory session consent flag (`recording_consent: true`) logged in DB before audio streaming begins.
-- **Modularity**:
-  - `app/services/` holds all domain logic (STT, TTS, RAG, LLM, Examiner, Grader, Authenticity). Route handlers in `app/api/` and WebSocket handler in `app/ws/` strictly orchestrate services.
-  - Dynamic provider loading based on `LLM_PROVIDER`, `STT_PROVIDER`, `TTS_PROVIDER`.
+```
+Browser (Next.js)
+  ├─ REST (fetch, bearer JWT) ───────────────►  FastAPI  /api/v1
+  └─ WebSocket (single-use ticket) ──────────►  /api/v1/ws/sessions/{id}
+                                                   │
+          ┌──────────────┬──────────────┬──────────┼─────────────┬──────────────┐
+          ▼              ▼              ▼          ▼             ▼              ▼
+         STT            RAG        LLM gateway    TTS      Authenticity    SQL + files
+   faster-whisper    ChromaDB +    Ollama │ Gemini │  Edge │ Piper │   analyzer     SQLite/Postgres,
+   (word stamps)     embeddings    Grok │ Mock       Browser       (advisory)     audio, documents
+```
 
-## 3. Frontend Architecture
-- **Framework**: Next.js 14+ (App Router), TypeScript in strict mode, Tailwind CSS with an educational, calm palette (Slate, Deep Indigo, Emerald for correct, Amber for advisory flags).
-- **Audio & VAD**: Web Audio API (`AudioContext`, `MediaStreamAudioSourceNode`) coupled with Silero VAD (`@ricky0123/vad-web`) or zero-crossing energy fallback for end-of-speech detection.
-- **Real-time Protocol**: Typed WebSocket event system supporting bidirectional JSON messages (`audio_chunk`, `speech_end`, `transcript`, `question`, `tts_audio`, `state_change`).
+One viva turn:
 
-## 4. Authenticity Analysis (Advisory & Non-Punitive)
-- Evaluates 6 distinct signals:
-  1. *Verbatim Overlap*: n-gram & cosine similarity against retrieved subject chunks.
-  2. *Disfluency Rate*: natural conversational pauses vs. unnaturally rigid verbatim reading.
-  3. *Pause Patterns*: punctuation pauses vs. mid-phrase hesitation.
-  4. *Prosody*: pitch variance & energy dynamics via `librosa`/`parselmouth`.
-  5. *Response Latency*: duration of silence before speech onset.
-  6. *Probe Performance*: delta between standard recall answers vs. probing questions ("explain in your own words").
-- Output is categorized as `low`, `medium`, or `high` reading likelihood accompanied by transparent human-readable evidence strings. Explicitly labelled as *advisory* for teacher review.
+1. The **examiner** retrieves context for an uncovered topic from the subject's Chroma collection and asks
+   the LLM for a question (type and difficulty adapt to previous scores).
+2. **TTS** synthesises it (or the browser speaks it); the browser plays it, then records the answer with
+   `MediaRecorder`, streaming `audio_chunk`s.
+3. On `speech_end` the audio is transcoded (ffmpeg → 16 kHz WAV), stored, and transcribed by **Whisper**
+   with word timestamps.
+4. The **grader** scores the transcript against the retrieved context using the rubric (strict JSON,
+   validated by Pydantic, one repair attempt on bad JSON).
+5. The **authenticity analyzer** computes advisory signals, relative to the warm-up baseline.
+6. Results are saved on the `Turn` row and sent as `feedback`; the client asks for the next question.
 
-## 5. Directory Mapping
-All services will reside in standard clean directories:
-- `backend/` (FastAPI, Alembic, services, models, tests)
-- `frontend/` (Next.js, Tailwind, components, hooks, lib)
-- `data/` (subject uploads, audio recordings, Chroma collections)
-- `docs/` (architecture, API spec, WebSocket protocol, authenticity guide)
+Protocol details: [websocket-protocol.md](websocket-protocol.md). REST: [api-reference.md](api-reference.md).
+
+## 2. Backend (`backend/app`)
+
+| Package | Responsibility |
+|---|---|
+| `core/` | Settings (Pydantic `BaseSettings`, startup validation), DB engine, JWT/tickets/rate limits, logging, errors |
+| `api/` | Thin REST routers; access rules in `deps.py` (`require_role`, `ensure_session_access`, `ensure_subject_owner`) |
+| `ws/` | WebSocket handler and connection manager (buffers, one connection per session) |
+| `services/` | All business logic: `examiner`, `grader`, `session_state` (orchestrator), `authenticity`, `rag`, `stt`, `tts`, `llm/`, `retention`, `audio_conversion`, `auth_state` (revocation, tickets, rate limits), `report_pdf` |
+| `models/`, `schemas/` | SQLAlchemy 2 models and Pydantic v2 schemas |
+| `prompts/v1/` | Versioned prompt templates; the version is stored on every turn |
+| `scripts/` | Seeding and authenticity calibration |
+
+**Provider pattern.** LLM, STT and TTS each have an abstract base and implementations chosen by config
+(`LLM_PROVIDER`, `STT_PROVIDER`, `TTS_PROVIDER`). Switching Ollama → Gemini is a config change only.
+LLM providers share retry-with-backoff and support JSON mode and token streaming. Mock providers exist for
+tests and demos and are refused outside `DEMO_MODE`/testing.
+
+**Background work.** Document ingestion runs as an asyncio task after upload; parsing, chunking and embedding run
+in worker threads so live vivas stay responsive. At startup the backend indexes any completed document missing from
+ChromaDB (e.g. uploaded while Chroma was unavailable). A maintenance sweep runs at startup and every 24 h: it
+deletes expired audio and purges stale auth-state rows. Whisper inference runs in a worker thread so it doesn't block the event loop.
+
+**Data.** SQLite by default (`DATABASE_URL` can point at PostgreSQL). The schema is managed by **Alembic**
+(`backend/alembic/versions/`); the server applies pending migrations at startup, and a database created before
+migrations existed is recognised and stamped at the matching revision, so no data is lost. Tests use `create_all`
+on throwaway databases. Files live under `DATA_DIR` (`audio/`, `documents/`, `chromadb/`).
+
+## 3. Frontend (`frontend/`)
+
+| Path | Role |
+|---|---|
+| `app/login`, `app/student`, `app/teacher`, `app/page.tsx` | Pages (App Router, client components) |
+| `lib/api.ts` | REST client: token storage, automatic refresh-and-retry on 401, authenticated blob downloads |
+| `lib/ws.ts` | Typed WebSocket client: heartbeat, exponential-backoff reconnect with a fresh ticket |
+| `lib/audio-recorder.ts` | Mic capture, level meter, volume-based end-of-speech detection, ordered chunk flushing |
+| `components/` | Audio orb, mic-check/consent dialog, navbar (role-aware), theme provider, UI primitives |
+
+Theming uses CSS custom properties with light and dark token sets (`app/globals.css`); fonts are self-hosted
+via `next/font`.
+
+## 4. Hardware sizing (4 GB GPU, e.g. GTX 1650)
+
+| Component | Choice | Approx. memory |
+|---|---|---|
+| STT | `faster-whisper` `base.en` / `distil-small.en`, float16 (int8 on CPU) | < 1 GB VRAM |
+| LLM | Ollama `qwen2.5:3b` or `gemma2:2b` (4-bit), or a cloud provider (no VRAM) | ≈ 2 GB VRAM |
+| Embeddings | ChromaDB's built-in ONNX `all-MiniLM-L6-v2` (CPU) | ≈ 100 MB RAM |
+| TTS | Browser, EdgeTTS (cloud) or Piper (CPU) | none on GPU |
+
+Larger models (`large-v3`, 8B+ LLMs) need more VRAM; all sizes are environment variables. End-to-end latency
+on the target GPU has not been measured yet (see [ROADMAP.md](ROADMAP.md)).
+
+## 5. Related documents
+
+- [Authenticity methodology & limitations](authenticity-methodology.md)
+- [Security](security.md) · [Privacy & retention](privacy-and-retention.md)
+- [Runbook & demo script](runbook.md) · [Roadmap](ROADMAP.md)

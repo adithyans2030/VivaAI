@@ -52,6 +52,17 @@ jobs:
       - name: Dependency audit
         run: pip-audit -r requirements.txt
 
+      - name: Migrations apply cleanly and match the models
+        env:
+          SECRET_KEY: "ci-secret-key-at-least-32-characters-long"
+          DATABASE_URL: "sqlite+aiosqlite:///./migration_check.db"
+          DEMO_MODE: "true"
+          LLM_PROVIDER: "mock"
+          STT_PROVIDER: "mock"
+        run: |
+          python -m alembic upgrade head
+          python -m alembic check
+
       - name: Pytest — unit & integration tests (≥70% app, ≥80% services)
         env:
           SECRET_KEY: "ci-secret-key-at-least-32-characters-long"

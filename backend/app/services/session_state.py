@@ -68,7 +68,8 @@ class VivaSessionOrchestrator:
             return None, True
 
         # Calculate running score and covered topics
-        scored_turns = [t for t in session.turns if t.score_0_10 is not None]
+        # The warm-up only captures the speaking baseline; it never counts toward the grade.
+        scored_turns = [t for t in session.turns if t.score_0_10 is not None and t.question_type != "warmup"]
         avg_score = sum(t.score_0_10 or 0.0 for t in scored_turns) / len(scored_turns) if scored_turns else 7.0
         covered_topics = [t.topic for t in session.turns if t.topic]
 
@@ -226,12 +227,13 @@ class VivaSessionOrchestrator:
         """Compute aggregated scores, authenticity summary, and finalize session."""
         session.status = SessionStatus.COMPLETED
 
-        scored_turns = [t for t in session.turns if t.score_0_10 is not None]
+        # The warm-up only captures the speaking baseline; it never counts toward the grade.
+        scored_turns = [t for t in session.turns if t.score_0_10 is not None and t.question_type != "warmup"]
         if scored_turns:
             total_score = sum(t.score_0_10 or 0.0 for t in scored_turns) / len(scored_turns)
             session.total_score = round(total_score, 2)
         else:
-            session.total_score = 0.0
+            session.total_score = None  # nothing graded yet; 0.0 would read as a failing grade
 
         # Aggregate Authenticity Reports
         turn_reports = []

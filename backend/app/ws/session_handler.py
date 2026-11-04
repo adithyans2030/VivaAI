@@ -31,13 +31,13 @@ async def authenticate_ws(
     websocket: WebSocket, session_id: str, ticket: Optional[str] = None, token: Optional[str] = None
 ) -> Optional[User]:
     """Validate single-use WebSocket ticket (preferred) or fallback JWT token during handshake."""
-    from app.core.security import consume_ws_ticket
+    from app.services.auth_state import consume_ticket
 
     user_id = None
     if ticket:
         try:
-            record = consume_ws_ticket(ticket, session_id)
-            user_id = record["user_id"]
+            async with async_session_factory() as db:
+                user_id = (await consume_ticket(db, ticket, session_id)).user_id
         except Exception as e:
             logger.warning(f"WebSocket ticket auth failed for session {session_id}: {e}")
             return None
@@ -282,6 +282,7 @@ async def viva_session_websocket(
                         "payload": {
                             "turn_id": turn_id,
                             "score_0_10": grade_res.score_0_10,
+                            "counts_toward_score": turn.question_type != "warmup",
                             "feedback": grade_res.feedback,
                             "rubric": grade_res.rubric.model_dump(),
                             "authenticity": {
@@ -455,10 +456,14 @@ async def viva_session_websocket(
     except WebSocketDisconnect:
         logger.info(f"WebSocket client disconnected cleanly: session {session_id}")
     except Exception as e:
-        logger.error(f"WebSocket error in session {session_id}: {e}")
+        # Details go to the server log only; clients get a generic message.
+        logger.exception(f"WebSocket error in session {session_id}: {e}")
         await manager.send_json(
             session_id,
-            {"type": "error", "payload": {"code": "WS_ERROR", "message": str(e)}},
+            {
+                "type": "error",
+                "payload": {"code": "WS_ERROR", "message": "An internal error occurred. Please reconnect to resume."},
+            },
         )
     finally:
         await manager.disconnect(session_id)

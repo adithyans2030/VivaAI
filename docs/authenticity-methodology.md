@@ -12,7 +12,7 @@ The **VivaIQ Authenticity Assessment Engine** evaluates whether a student's oral
 
 ---
 
-## 2. The 6 Acoustic & Linguistic Signals
+## 2. The Acoustic & Linguistic Signals
 
 | Signal | Source | Baseline / Expected | Scripted / Reading Threshold | Weight |
 | :--- | :--- | :--- | :--- | :--- |
@@ -51,23 +51,67 @@ Every authenticity output (API payload, WebSocket feedback, database record, and
 - **Disclaimer**: *"Advisory signal to support teacher judgment — not an automated accusation."*
 
 ### Likelihood Classifications
-- **Low Risk ($\le 0.35$)**: Natural, spontaneous speech patterns. High confidence of genuine comprehension.
-- **Medium Risk ($0.35 - 0.60$)**: Mixed indicators. Teacher should casually review flagged regions.
-- **High Risk ($> 0.60$)**: Multiple converging signals (e.g. verbatim textbook overlap + zero disfluency + mid-clause pauses). Recommended for teacher verification.
+- **Low Risk ($< 0.35$)**: Natural, spontaneous speech patterns. High confidence of genuine comprehension.
+- **Medium Risk ($0.35 \le r < 0.60$)**: Mixed indicators. Teacher should casually review flagged regions.
+- **High Risk ($\ge 0.60$)**: Multiple converging signals (e.g. verbatim textbook overlap + zero disfluency + mid-clause pauses). Recommended for teacher verification.
 
 ---
 
-## 4. Calibration & Empirical Benchmarking
+## 4. Calibration: current status
 
-Run the automated calibration benchmark:
+**The weights and thresholds above are hand-set starting values. They have not yet been validated on
+real student recordings.** Treat every flag as a prompt for a conversation, not as evidence.
+
+### What exists today
+
+`app/scripts/calibrate_authenticity.py` scores a labelled set of answers and reports false-positive and
+false-negative rates:
+
 ```powershell
-.\.venv\Scripts\python scripts/calibrate_authenticity.py
+cd backend
+.\.venv\Scripts\python -m app.scripts.calibrate_authenticity --dataset data\labelled_answers.json
 ```
 
-### Empirical Benchmark Results
-On the standardized natural vs. scripted benchmark corpus:
-- **Natural Spontaneous Samples**: Mean composite risk = 0.015, Classified as **Low Risk** (Confidence >= 0.97).
-- **Scripted Note-Reading Samples**: Mean composite risk = 0.550, Classified as **Medium/High Risk** (Confidence >= 0.77).
-- **Empirical False Positive Rate**: 0.0%
-- **Empirical False Negative Rate**: 0.0%
+Without `--dataset` it runs on **two built-in synthetic examples** (one "spontaneous", one "reading"
+transcript written by hand, with no audio) and prints 100% accuracy. That only shows the code runs end
+to end. **Two invented samples say nothing about accuracy on real students**, and the pitch signal is
+never exercised because the samples have no audio. (An older copy at `backend/scripts/calibrate_authenticity.py`
+uses four similar samples; the `app.scripts` version is the maintained one.)
 
+Dataset format: a JSON list of objects with `transcript`, `ground_truth` (`"spontaneous"` or
+`"reading_notes"`), and optionally `reference_chunks`, `word_timestamps`, `onset_latency_seconds` and
+`question_type`.
+
+### What proper calibration needs
+
+1. **Consented recordings** of the same students answering both spontaneously and by reading prepared
+   notes, ideally 30+ students and several answers each, covering the accents, languages and
+   speaking styles of your actual cohort (e.g. Indian English, code-switched Hinglish).
+2. Run the analyzer per answer, then tune weights and thresholds to keep the **false-positive rate low**.
+   Wrongly suggesting that an honest student read their answer is the costlier error.
+3. Report the false-positive rate **separately per subgroup** (accent, first language, any disclosed
+   speech differences). A model that is fair on average can still be unfair to one group.
+4. Re-run after any change to STT model, prompts, or signal code.
+
+The labelled-recordings pipeline (audio in, features extracted, metrics per subgroup) is tracked in
+[ROADMAP.md](ROADMAP.md).
+
+---
+
+## 5. Known limitations
+
+These are reasons a flag can be **wrong**. Teachers should keep them in mind when reading reasons.
+
+| Situation | Likely effect |
+|---|---|
+| **Accents and second-language speakers** | Whisper word timings and filler detection are less reliable; pauses for word-finding can look like note-scanning. The warm-up baseline reduces but does not remove this. |
+| **Nervous or anxious students** | Long onset latency, unusual pauses, or flat pitch from stress rather than reading. |
+| **Well-prepared or memorised answers** | A student who learned the textbook wording speaks fluently with high overlap. That is preparation, not reading. The probe signal (asking for an own-words explanation or a new example) is the best counter-check. |
+| **Neurodivergent speech patterns** (e.g. autism, ADHD, stammering) | Atypical prosody, pacing or disfluency can move several signals at once. Never use a flag as grounds for action without talking to the student. |
+| **Short answers** | Too few words for stable statistics; reasons may rest on very little data. |
+| **Poor microphone or noisy rooms** | Degrades pitch and pause detection; pitch is skipped when it cannot be measured. |
+| **Reading from a screen silently out of view** | Not reliably detectable; VivaIQ has no video by design. |
+| **Retrieval coverage** | Overlap is measured only against the chunks retrieved for that question, so copying from material outside the uploaded documents is not detected. |
+
+Because of these limits, the authenticity result **never** changes a score, is labelled advisory everywhere
+it appears, and always comes with its reasons so a teacher can judge them against the recording.

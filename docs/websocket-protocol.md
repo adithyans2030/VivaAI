@@ -1,173 +1,158 @@
-# VivaIQ Real-Time WebSocket Protocol Specification
+# VivaIQ WebSocket Protocol
 
-## Endpoint: `/api/v1/ws/sessions/{session_id}`
+**Endpoint:** `GET /api/v1/ws/sessions/{session_id}` (WebSocket upgrade)
+**Source of truth:** `backend/app/ws/session_handler.py` (server), `frontend/lib/ws.ts` (client)
 
-The VivaIQ viva examination session uses a full-duplex WebSocket connection to handle real-time audio chunk transmission, speech activity transitions, questions, and transcription events.
-
----
-
-## 1. Authentication & Session Establishment
-- **Handshake URL**: `ws://<host>:<port>/api/v1/ws/sessions/{session_id}?token=<jwt_access_token>`
-- **Token Verification**: Validated during the WebSocket upgrade handshake. If the token is invalid or expired, the server terminates with close code `4401` (Unauthorized).
-- **Consent Pre-condition**: The session must have `recording_consent: true`. If not provided, the server terminates with close code `4403` (Consent Required).
-- **Session Resume**: If a connection drops, reconnecting with the same `session_id` restores the current turn state without losing previous answers or evaluations.
+Every message in both directions is a JSON object `{"type": string, "payload": object}`.
 
 ---
 
-## 2. Protocol Messages (Client to Server)
+## 1. Connecting
 
-All client-to-server messages are JSON objects containing `type` and `payload`. Audio chunks can also be sent as binary blobs or base64 JSON chunks.
+### 1.1 Get a ticket, then connect
 
-### `audio_chunk`
-Streams candidate microphone audio slices (PCM or WebM) while speaking:
+1. The student creates a session (`POST /api/v1/sessions`) and records consent
+   (`POST /api/v1/sessions/{id}/consent` with `{"recording_consent": true}`).
+2. The client requests a ticket: `POST /api/v1/sessions/{id}/ws-ticket` → `{"ticket": "...", "expires_in": 30}`.
+3. The client connects to `ws://<host>/api/v1/ws/sessions/{id}?ticket=<ticket>`.
+
+Tickets are **single-use** and expire after **30 seconds**. Because a ticket is consumed on connect,
+**every reconnect needs a new ticket**; `VivaWebSocketClient` does this automatically through its
+`getTicket` option.
+
+> `?token=<access JWT>` is still accepted as a fallback (the test suite uses it). Browsers should always
+> use tickets: URLs end up in proxy and access logs, and a ticket is worthless once used.
+
+### 1.2 Close codes
+
+| Code | Meaning |
+|---|---|
+| `4401` | Ticket/token invalid, expired or already used |
+| `4404` | Session does not exist |
+| `4403` | Not this student's session, or recording consent has not been given |
+| `1000` | Normal close, idle timeout (60 s without any client message), or replaced by a newer connection for the same session |
+
+Only one connection per session is kept: a new connection closes the previous one.
+
+### 1.3 On connect: `session_state`
+
+Immediately after accepting, the server sends the current state so a reconnecting client can resume:
+
 ```json
 {
-  "type": "audio_chunk",
+  "type": "session_state",
   "payload": {
-    "turn_id": "turn-uuid-1",
-    "chunk_index": 0,
-    "audio_b64": "<base64-encoded-audio>"
+    "session_id": "…",
+    "status": "in_progress",
+    "recording_consent": true,
+    "subject": { "id": "…", "name": "Operating Systems & Concurrency" },
+    "active_turn": { "turn_id": "…", "turn_number": 3, "question_text": "…", "question_type": "application" }
   }
 }
 ```
 
-### `speech_end`
-Emitted by client-side Voice Activity Detection (VAD) or when candidate finishes answering:
-```json
-{
-  "type": "speech_end",
-  "payload": {
-    "turn_id": "turn-uuid-1",
-    "duration_ms": 5420
-  }
-}
-```
-
-### `repeat_question`
-Student requests the examiner to repeat the current question:
-```json
-{
-  "type": "repeat_question",
-  "payload": {
-    "turn_id": "turn-uuid-1"
-  }
-}
-```
-
-### `ping`
-Heartbeat keepalive sent every 15-30 seconds:
-```json
-{
-  "type": "ping",
-  "payload": {
-    "timestamp": 1729000000
-  }
-}
-```
+The client then sends `ready` to receive the next (or still-unanswered) question.
 
 ---
 
-## 3. Protocol Messages (Server to Client)
+## 2. Client → server
+
+| Type | Payload | Effect |
+|---|---|---|
+| `ready` (alias `request_question`) | `{}` | Server sends the next question, or `session_complete` when the planned number of questions is reached. Sent on connect and after each `feedback`. |
+| `audio_chunk` | `{turn_id, chunk_index, audio_b64}` | Appends base64 audio (browser WebM/Opus from `MediaRecorder`) to the turn's buffer. |
+| `speech_end` | `{turn_id, duration_ms?}` | Answer finished: server transcribes, grades and analyses it. Sent only after the recorder has flushed its final chunk. |
+| `repeat_question` | `{turn_id}` | Replays the question. **One repeat per turn.** |
+| `end_session` | `{}` | Ends the viva early; server finalises the report. |
+| `ping` | `{timestamp}` | Heartbeat (client sends every 20 s); server answers `pong`. |
+
+**Backpressure / limits:** the audio buffer for a turn is capped at **9.6 MB**;
+beyond that the server replies `AUDIO_BUFFER_OVERFLOW` and drops further chunks for that turn.
+
+---
+
+## 3. Server → client
 
 ### `state_change`
-Signals changes in examiner activity (`examiner_speaking`, `listening`, `processing`, `completed`):
-```json
-{
-  "type": "state_change",
-  "payload": {
-    "state": "examiner_speaking",
-    "turn_number": 1
-  }
-}
-```
+`{"state": "examiner_speaking" | "listening" | "processing" | "completed", "turn_number": n}`
+
+The browser drives `examiner_speaking`/`listening` from actual audio playback and the microphone,
+and treats the server as authoritative for `processing` and `completed`.
 
 ### `question`
-Broadcasts the synthesized oral viva question:
 ```json
 {
   "type": "question",
   "payload": {
-    "turn_id": "turn-uuid-1",
-    "turn_number": 1,
+    "turn_id": "…",
+    "turn_number": 2,
+    "question_text": "Explain how a counting semaphore differs from a mutex.",
     "topic": "Process Synchronization",
-    "question_type": "conceptual",
-    "question_text": "What is the critical section problem and what three conditions must any valid solution satisfy?",
-    "prompt_version": "v1.0"
+    "question_type": "compare_contrast",
+    "audio_b64": "<base64 audio or null>",
+    "audio_mime": "audio/mpeg",
+    "is_repeat": false
   }
 }
 ```
 
-### `tts_audio`
-Streams synthesized voice audio chunks (PCM / WAV bytes encoded in base64) to be played:
-```json
-{
-  "type": "tts_audio",
-  "payload": {
-    "turn_id": "turn-uuid-1",
-    "chunk_index": 0,
-    "audio_b64": "<base64-audio>",
-    "is_last": false
-  }
-}
-```
+`audio_b64` is server-side TTS for the whole question (`audio_mime`: `audio/mpeg` from EdgeTTS,
+`audio/wav` from Piper). When it is `null` (`TTS_PROVIDER=browser`, or synthesis failed) the browser
+speaks the question with the Web Speech API. `is_repeat: true` marks a replay requested by `repeat_question`.
 
 ### `transcript`
-Returned upon Whisper STT completion with word-level timestamps:
-```json
-{
-  "type": "transcript",
-  "payload": {
-    "turn_id": "turn-uuid-1",
-    "text": "The critical section problem requires mutual exclusion, progress, and bounded waiting.",
-    "words": [
-      { "word": "The", "start": 0.12, "end": 0.28, "probability": 0.98 },
-      { "word": "critical", "start": 0.30, "end": 0.65, "probability": 0.97 },
-      { "word": "section", "start": 0.66, "end": 1.02, "probability": 0.99 }
-    ]
-  }
-}
-```
+`{"turn_id", "text", "words": [{"word", "start", "end", "probability"}]}`. Whisper output with word timestamps.
 
 ### `feedback`
-Immediate rubric assessment and examiner remarks after grading:
 ```json
 {
   "type": "feedback",
   "payload": {
-    "turn_id": "turn-uuid-1",
-    "score_0_10": 9.0,
-    "feedback": "Excellent definition capturing mutual exclusion, progress, and bounded waiting clearly.",
+    "turn_id": "…",
+    "score_0_10": 7.5,
+    "feedback": "Correct on mutual exclusion; did not explain bounded waiting.",
     "rubric": {
-      "correctness": 9.5,
-      "completeness": 9.0,
-      "clarity": 9.0,
-      "depth": 8.5
+      "correctness": 8, "completeness": 6, "clarity": 8, "depth": 7,
+      "missing_points": ["bounded waiting"], "incorrect_claims": []
+    },
+    "authenticity": {
+      "likelihood": "low",
+      "confidence": 0.82,
+      "reasons": ["…"],
+      "is_advisory": true,
+      "disclaimer": "Advisory signal to support teacher judgment, not an automated accusation."
     }
   }
 }
 ```
 
 ### `session_complete`
-Emitted when the planned number of questions (e.g. 6-10) is fulfilled:
-```json
-{
-  "type": "session_complete",
-  "payload": {
-    "session_id": "sess-uuid-1",
-    "total_score": 8.6,
-    "overall_authenticity": "low",
-    "turns_count": 8
-  }
-}
-```
+The final report: `session_id`, `student_id`, `subject_id`, `status`, `total_score`, `turns_count`,
+`authenticity` (same advisory shape as above) and `turn_summaries[]`
+(`turn_number`, `question_text`, `question_type`, `student_transcript`, `score_0_10`, `feedback`, `authenticity_likelihood`).
+
+### `error`
+`{"code": string, "message": string}`. The connection stays open unless stated otherwise.
+
+| Code | Cause |
+|---|---|
+| `INVALID_AUDIO_ENCODING` | `audio_b64` is not valid base64 |
+| `AUDIO_BUFFER_OVERFLOW` | Turn audio exceeded 9.6 MB |
+| `INVALID_TURN` | Missing `turn_id`, or the turn does not belong to this session |
+| `EMPTY_AUDIO` | `speech_end` arrived with no audio buffered |
+| `STT_FAILED` | Transcription failed (details are in the server log) |
+| `REPEAT_LIMIT_EXCEEDED` | Second repeat requested for the same turn |
+| `SESSION_NOT_FOUND` | Session deleted while connected |
+| `WS_ERROR` | Unexpected server error; message is generic, details are logged server-side. Reconnect to resume. |
 
 ### `pong`
-Keepalive response:
-```json
-{
-  "type": "pong",
-  "payload": {
-    "timestamp": 1729000000
-  }
-}
-```
+`{"timestamp": <unix seconds>}`
+
+---
+
+## 4. Not implemented (see ROADMAP)
+
+- **`partial_transcript`**: live captions currently come from the browser's own speech recognition
+  (where available); the server sends only the final `transcript`.
+- **`tts_audio` streaming**: question audio is sent whole inside `question`, not as streamed
+  sentence chunks, so first-audio latency includes full synthesis.

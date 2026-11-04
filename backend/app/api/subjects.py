@@ -1,5 +1,6 @@
 """Subject management routes."""
 
+from pathlib import Path
 from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,6 +14,7 @@ from app.models.document import Document
 from app.models.subject import Subject
 from app.models.user import User, UserRole
 from app.schemas.subject import SubjectCreate, SubjectDetailResponse, SubjectResponse, SubjectUpdate
+from app.services.rag import get_rag_store
 
 router = APIRouter(prefix="/subjects", tags=["subjects"])
 
@@ -139,6 +141,13 @@ async def delete_subject(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can only delete subjects you created",
         )
+
+    # Remove stored files and vectors; the DB cascade only removes rows.
+    docs = (await db.execute(select(Document).where(Document.subject_id == subject_id))).scalars().all()
+    rag = get_rag_store()
+    for doc in docs:
+        await rag.delete_document(subject_id, doc.id)
+        Path(doc.file_path).unlink(missing_ok=True)
 
     await db.delete(subject)
     await db.flush()

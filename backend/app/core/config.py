@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     # TTS Configuration
     TTS_PROVIDER: Literal["browser", "piper", "kokoro", "edge", "mock"] = "browser"
     PIPER_MODEL_PATH: str = ""
+    PDF_FONT_PATH: str = ""  # Unicode .ttf for PDF reports; auto-detected (DejaVu/Arial) when empty
     EDGE_TTS_VOICE: str = "en-US-JennyNeural"  # e.g. en-IN-NeerjaNeural for Indian English
 
     # RAG & Embeddings
@@ -106,6 +107,12 @@ class Settings(BaseSettings):
                 logging.getLogger("uvicorn").warning(
                     "WARNING: Using ephemeral random SECRET_KEY for non-production environment. Set SECRET_KEY in .env for persistent sessions."
                 )
+
+        if "*" in self.CORS_ORIGINS:
+            raise ValueError("CORS_ORIGINS must list explicit origins; '*' is not allowed.")
+
+        if self.ENVIRONMENT == "production" and self.DEMO_MODE:
+            raise ValueError("DEMO_MODE cannot be enabled in production (it permits mock STT/LLM).")
 
         # Enforce that mock STT / LLM is only permitted in testing or when DEMO_MODE=True
         if not self.DEMO_MODE and self.ENVIRONMENT != "testing":

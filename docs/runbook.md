@@ -1,151 +1,176 @@
-# VivaIQ Operator Runbook & Stakeholder Demo Guide
+# VivaIQ Runbook & Demo Script
 
-This runbook describes how to launch, configure, test, and demonstrate **VivaIQ**—an AI Voice Viva Voce Examiner with RAG-grounded oral questioning, multi-dimensional rubric grading, and explainable, advisory authenticity assessment.
-
----
-
-## 1. System Overview & Architecture
-
-- **Backend**: FastAPI with async SQLAlchemy, SQLite (`vivaiq.db`), and WebSockets.
-- **Frontend**: Next.js App Router (React 19), Tailwind CSS, Lucide icons, Canvas Audio Visualizer, and Web Speech API.
-- **LLM Gateway**: Local **Ollama** (`gemma2:2b` or `llama3.1:latest`), with pluggable support for Google Gemini and xAI Grok.
-- **Speech-to-Text (STT)**: `faster-whisper` (`base.en` on CUDA or CPU) with word-level timestamps.
-- **Text-to-Speech (TTS)**: Web Speech Synthesis API (browser native) and backend audio streaming.
-- **Knowledge Engine (RAG)**: ChromaDB vector store + TF-IDF fallback for grounded source citation.
-- **Authenticity Assessment**: Advisory 6-signal analysis engine (Verbatim N-grams, Disfluency Rate, Pause Distribution, Prosodic Variability, Onset Latency, Dynamic Probe Delta).
+How to configure, run, test and demonstrate VivaIQ on a single machine (Windows commands shown; use
+`source .venv/bin/activate` and forward slashes on Linux/macOS).
 
 ---
 
-## 2. Prerequisites
+## 1. Prerequisites
 
-| Component | Minimum Version | Note |
-| :--- | :--- | :--- |
-| **Operating System** | Windows 10/11, macOS, or Linux | Tested on Windows with NVIDIA GTX 1650 |
-| **Python** | 3.12+ | Installed in `backend/.venv` |
-| **Node.js** | 20+ (Node 24 recommended) | In `frontend` |
-| **Ollama** | 0.4.0+ | Must be running on `http://localhost:11434` |
+| Component | Version | Notes |
+|---|---|---|
+| Python | 3.11+ | Backend virtualenv in `backend/.venv` |
+| Node.js | 20+ | Frontend |
+| ffmpeg | any recent | On `PATH`; converts browser WebM audio to WAV for Whisper |
+| Ollama | 0.4+ | Only for `LLM_PROVIDER=ollama`; must listen on `http://localhost:11434` |
+| NVIDIA GPU + CUDA | optional | Whisper runs on CPU (slower) without one |
 
-### Installing the Recommended Local Model in Ollama:
-```powershell
-# Optimized for 4GB VRAM (GTX 1650):
-ollama pull gemma2:2b
-
-# Alternatively for 8GB+ VRAM:
-ollama pull llama3.1:latest
-```
-
----
-
-## 3. Environment Configuration
-
-### Backend (`backend/.env`):
-```ini
-PROJECT_NAME="VivaIQ"
-API_V1_STR="/api/v1"
-SECRET_KEY="temporary-secret-key-change-in-production"
-ENVIRONMENT="development"
-DEBUG=True
-
-# LLM Gateway
-LLM_PROVIDER="ollama"
-OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_MODEL="gemma2:2b"
-
-# STT Configuration
-STT_PROVIDER="whisper"
-WHISPER_MODEL="base.en"
-WHISPER_DEVICE="cuda"
-WHISPER_COMPUTE_TYPE="float16"
-
-# TTS Configuration
-TTS_PROVIDER="browser"
-```
-
----
-
-## 4. One-Command Demo Database Seeding
-
-To seed the database with course materials, teachers, students, and pre-recorded viva sessions (both authentic and flagged note-reading):
+Recommended Ollama model for a 4 GB GPU (e.g. GTX 1650):
 
 ```powershell
-cd c:\Users\adith\OneDrive\Desktop\VivaAI\backend
-.\.venv\Scripts\python -m app.scripts.seed_demo
+ollama pull qwen2.5:3b      # or gemma2:2b; for 8 GB+: llama3.1:8b
 ```
 
-### Pre-Seeded Credentials:
-- **Teacher Account**: `teacher@vivaiq.edu` / `TeacherPass123!`
-- **Authentic Student (Alex Lovelace)**: `alex@student.edu` / `StudentPass123!`
-- **Scripted Student (Robert Smith)**: `robert@student.edu` / `StudentPass123!`
-- **Course**: `CS301: Operating Systems & Concurrency`
+## 2. Configuration
 
----
-
-## 5. Starting the Application
-
-### Start the Backend (Port 8000):
 ```powershell
-cd c:\Users\adith\OneDrive\Desktop\VivaAI\backend
+copy .env.example .env                       # backend settings (repo root)
+copy frontend\.env.example frontend\.env.local
+```
+
+> **Which `.env` wins?** The backend reads `backend/.env` and then the repo-root `.env`; **values in the
+> root `.env` override `backend/.env`**. Keep one of them, or make sure they agree.
+
+Two working profiles:
+
+| Profile | Settings | Use |
+|---|---|---|
+| **Demo / no GPU** | `DEMO_MODE=true`, `LLM_PROVIDER=mock`, `STT_PROVIDER=mock`, `TTS_PROVIDER=browser` | UI walkthroughs. Questions are scripted and every answer gets the same canned transcript. |
+| **Real models** | `DEMO_MODE=false`, `LLM_PROVIDER=ollama`, `STT_PROVIDER=whisper`, `WHISPER_MODEL=base.en`, `WHISPER_DEVICE=cuda` (or `cpu` with `WHISPER_COMPUTE_TYPE=int8`), `TTS_PROVIDER=edge` or `browser` | Actual vivas |
+
+Set a real `SECRET_KEY` (`python -c "import secrets; print(secrets.token_hex(32))"`); with the placeholder,
+every backend restart logs everyone out. For the one-click demo buttons on the login page, set
+`NEXT_PUBLIC_DEMO_MODE=true` in `frontend/.env.local` (demo machines only).
+
+Full variable reference: [`.env.example`](../.env.example). Provider data flows: [privacy-and-retention.md](privacy-and-retention.md#4-data-leaving-the-server).
+
+## 3. Install & seed
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+.\.venv\Scripts\pip install -r requirements-ml.txt    # only for real models (faster-whisper, embeddings, librosa)
+
+.\.venv\Scripts\python -m app.scripts.seed            # admin + simple accounts + a subject
+.\.venv\Scripts\python -m app.scripts.seed_demo       # course material + two reviewed demo vivas
+
+cd ..\frontend
+npm install
+```
+
+Accounts after seeding (run `seed` first: `seed_demo` keeps existing accounts and creates no admin):
+
+| Role | Email | Password |
+|---|---|---|
+| Admin | `admin@vivaiq.edu` | `admin123` |
+| Teacher (owns CS301) | `teacher@vivaiq.edu` | `teacher123` (`TeacherPass123!` if only `seed_demo` was run) |
+| Student | `student@vivaiq.edu` | `student123` |
+| Student, demo "authentic" viva | `alex@student.edu` | `StudentPass123!` |
+| Student, demo "flagged" viva | `robert@student.edu` | `StudentPass123!` |
+
+These are demo credentials. Change or remove them before any real use.
+
+## 4. Run
+
+```powershell
+# terminal 1
+cd backend
 .\.venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-- Interactive Swagger Docs: `http://127.0.0.1:8000/api/v1/docs`
-- Health Check: `http://127.0.0.1:8000/health`
-- Readiness Probe: `http://127.0.0.1:8000/ready`
 
-### Start the Frontend (Port 3000):
-```powershell
-cd c:\Users\adith\OneDrive\Desktop\VivaAI\frontend
+# terminal 2
+cd frontend
 npm run dev
 ```
-Open **`http://localhost:3000`** in Google Chrome or Microsoft Edge.
 
----
+- App: http://localhost:3000 (use Chrome or Edge; live captions need their speech recognition)
+- API docs: http://localhost:8000/api/v1/docs
+- Health: http://localhost:8000/health · Readiness (model status): http://localhost:8000/ready
 
-## 6. Stakeholder Demonstration Script (Step-by-Step)
+Docker: `docker compose up` (CPU) or `docker compose --profile gpu up` for the GPU backend.
 
-### Scene 1: The Student Viva Experience
-1. Open `http://localhost:3000/student` in your browser.
-2. Select the course **CS301: Operating Systems & Concurrency**.
-3. Click **"Begin Microphone Check & Consent"**.
-   - Speak into your microphone to watch the real-time audio visualizer waveform react.
-   - Check the mandatory recording consent checkbox and click **"Proceed to Viva Room"**.
-4. The **Animated Audio Orb** initializes in `examiner_speaking` mode, reading out the warmup question:
-   > *"Welcome to your oral viva examination. Could you introduce yourself and tell me what area of operating systems you enjoyed studying most?"*
-5. Answer naturally into your microphone:
-   - Notice the **Live Speech Captions** transcribe your words in real time.
-   - Click **"Finish & Submit Answer"**.
-6. The examiner transitions to `processing`, computes rubric grading and advisory authenticity, provides constructive feedback, and adaptively formulates the next technical question grounded in the syllabus.
+### Database migrations
 
----
-
-### Scene 2: The Teacher Audit & Authenticity Review
-1. Open `http://localhost:3000/teacher` in your browser (or log in as `teacher@vivaiq.edu`).
-2. Review the **Viva Voce Examination Sessions** table:
-   - **Ada / Alex Lovelace**: 8.8 / 10, **Low Risk** Authenticity flag.
-   - **Robert Smith**: 6.2 / 10, **High Risk** Authenticity flag.
-3. Click on **Robert Smith** to inspect the turn breakdown:
-   - **Turn 1 (Coffman Conditions)**:
-     - Student scored 9.0 on correctness, but the **Authenticity Diagnostics** flagged:
-       - *High 4-gram verbatim overlap with course notes (72%)*.
-       - *Unusually low disfluency rate (0.2 fillers/100 words)*.
-       - *Mid-clause visual scanning pause pattern*.
-   - **Turn 2 (Probe Question)**:
-     - When asked to depart from textbook definitions with an everyday analogy, score dropped from 9.0 to 3.5.
-4. Listen to the student's recorded voice by clicking the audio playback trigger on each turn.
-5. Demonstrate **Human-in-the-Loop Teacher Override**:
-   - Click **"Manual Grade Override"**.
-   - Adjust the score or flag, input a justification (*"Adjusted score down due to clear textbook recital without spontaneous explanation"*), and click **"Confirm Override"**.
-   - Point out that the override is permanently recorded in the **Immutable Audit Log**.
-6. Click **"Export CSV"** to download the complete examination audit trail.
-
----
-
-## 7. Running the Test Suite
-
-To run all 20 automated tests across unit, integration, RAG, and WebSocket pipelines:
+The backend applies pending Alembic migrations automatically at startup (back up `vivaiq.db` before upgrading
+VivaIQ). To manage them by hand:
 
 ```powershell
-cd c:\Users\adith\OneDrive\Desktop\VivaAI\backend
-.\.venv\Scripts\pytest -v
+cd backend
+.\.venv\Scripts\python -m alembic upgrade head          # apply
+.\.venv\Scripts\python -m alembic current               # show revision
+.\.venv\Scripts\python -m alembic revision --autogenerate -m "describe change"   # after editing models
 ```
 
-All tests execute in ~5 seconds using fast mock providers for STT and LLM, allowing continuous verification on non-GPU environments.
+Review autogenerated migrations before committing; CI fails if models and migrations drift apart.
+
+## 5. Tests & checks
+
+```powershell
+cd backend
+.\.venv\Scripts\python -m pytest                        # 107 tests, mock models, no GPU needed
+.\.venv\Scripts\python -m ruff check . ; .\.venv\Scripts\python -m mypy app
+
+cd ..\frontend
+npx tsc --noEmit ; npx eslint . --max-warnings 0 ; npm run build
+```
+
+CI runs the same checks plus coverage gates (≥ 70 % overall, ≥ 80 % on `app/services`) and dependency audits.
+Optional: `pip install pre-commit && pre-commit install` to run them on every commit.
+
+## 6. Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| Backend exits with `STT_PROVIDER='mock' is only permitted…` | Set `DEMO_MODE=true`, or switch to real providers. Check the **root** `.env`, which overrides `backend/.env`. |
+| Everyone is logged out after a restart | `SECRET_KEY` is a placeholder; set a real one. |
+| `/ready` reports STT not loaded | Install `requirements-ml.txt`; for CUDA errors set `WHISPER_DEVICE=cpu`, `WHISPER_COMPUTE_TYPE=int8`. |
+| Student answer returns "EMPTY_AUDIO" | Microphone permission denied or muted; check the level meter in the consent dialog. |
+| `/ready` shows `"chroma_active": false` / `rag_store_mode: in_memory_tfidf` | ChromaDB is not installed (`pip install -r requirements-ml.txt`). Without it, uploaded documents are indexed only in memory and **lost on every restart**. Once installed, the backend re-indexes completed documents automatically at startup. |
+| Teacher sees no sessions | Teachers only see sessions in subjects they own; log in as the subject's owner or as admin. |
+| `STT_FAILED` on answers | Check the backend log. Common causes: ffmpeg missing from `PATH` (browser WebM audio is not converted), or the Whisper model failed to load. |
+
+---
+
+## 7. Stakeholder demo script (≈ 10 minutes)
+
+**Setup:** demo profile or real models, both seed scripts run, `NEXT_PUBLIC_DEMO_MODE=true`, a headset mic.
+Open http://localhost:3000.
+
+### Scene 1: Landing page (1 min)
+Say: *"VivaIQ runs oral exams by voice. The AI asks and grades; the teacher stays in charge."* Point to the
+advisory notice at the bottom of the page.
+
+### Scene 2: Student viva (4 min)
+1. **Sign In → Student Account** (demo button), or log in as `student@vivaiq.edu`.
+2. Select **CS301 Operating Systems & Concurrency** and click **Enter Viva Room**.
+3. In the dialog, speak and show the **live level meter**, tick the **recording consent** box (*"nothing is
+   recorded without this"*), then click **Enter Examination Room**.
+4. The examiner asks a **warm-up question** aloud; the orb shows *Examiner speaking*, then *Listening*.
+   Say: *"The warm-up records the student's natural speaking baseline, so later signals compare them to
+   themselves, not to a stranger."*
+5. Answer naturally. Stop talking for about 2 seconds or click **Submit Answer**. Show *processing*, then the
+   feedback card with the score.
+6. On the next question, click **Repeat Question** once; point out it then disables (one repeat per question).
+7. Answer one more, then click **End Session** and show the completion message.
+
+### Scene 3: Teacher review (4 min)
+1. Log out, then log in as the **teacher**.
+2. Open **Robert Smith** (6.2/10, **High** flag). Read the advisory reasons aloud, then show:
+   - Turn 1 (*Coffman's conditions*): 9.0, a word-perfect textbook answer.
+   - Turn 2 (the probe: *"explain circular wait with cars at an intersection"*): 3.5, hesitant.
+   Say: *"The flag isn't an accusation. It tells the teacher where to ask a follow-up question."*
+3. Click **Play recording** on a turn to hear the answer next to its transcript.
+4. Click **Override Grade**, change the score, enter a reason, and confirm. Say: *"Every change is audit-logged
+   with who, when, before/after and why."*
+5. Click **Export PDF** and open the report: the advisory panel and reasons are on page 1. **Export CSV** gives
+   the same data for spreadsheets, with authenticity columns marked **(Advisory)**.
+6. Open **Alex Lovelace** (8.8, **Low**) for contrast, then the **Class Analytics** tab.
+
+### Scene 4: Close (1 min)
+- Runs locally on a 4 GB GPU, or with Gemini/Grok by changing one setting (`LLM_PROVIDER`).
+- Recordings are deleted automatically after 30 days; students can export or delete their data.
+- Be candid about limits: authenticity weights aren't yet calibrated on real recordings
+  ([authenticity-methodology.md](authenticity-methodology.md)); see the [roadmap](ROADMAP.md).
+
+**If something fails live:** switch to the demo profile and use the pre-seeded Robert and Alex sessions;
+Scene 3 needs no microphone or models.

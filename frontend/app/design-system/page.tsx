@@ -12,8 +12,6 @@ import {
   Activity,
   CheckCircle2,
   AlertTriangle,
-  RotateCcw,
-  Sparkles,
 } from "lucide-react";
 
 export default function DesignSystemPage() {
@@ -197,14 +195,14 @@ export default function DesignSystemPage() {
                 <Input
                   label="Password (With helper text)"
                   type="password"
-                  value="••••••••••••"
+                  defaultValue="correct-horse"
                   placeholder="Enter your password"
                   helperText="Must be at least 8 characters."
                 />
 
                 <Input
                   label="Authentication Server Status (Error State)"
-                  value="proxy-auth.school.edu"
+                  defaultValue="proxy-auth.school.edu"
                   error="HTTP 502 Bad Gateway"
                   readOnly
                 />

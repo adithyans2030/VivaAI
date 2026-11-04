@@ -4,7 +4,7 @@ import asyncio
 import io
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from pydantic import BaseModel
 
@@ -81,6 +81,31 @@ class MockSTTProvider(BaseSTTProvider):
         )
 
 
+def _read_pcm16_wav(audio: Union[bytes, Path, str]) -> Optional[Any]:
+    """Return float32 samples for a 16 kHz mono 16-bit WAV, or None for anything else."""
+    import wave
+
+    import numpy as np
+
+    try:
+        source = io.BytesIO(audio) if isinstance(audio, bytes) else str(audio)
+        with wave.open(source, "rb") as wf:
+            if (wf.getframerate(), wf.getnchannels(), wf.getsampwidth()) != (16000, 1, 2):
+                return None
+            frames = wf.readframes(wf.getnframes())
+    except (wave.Error, EOFError, OSError):
+        return None
+    return np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def _smoke_test(model: Any) -> None:
+    """Run one tiny inference so device/runtime problems surface at startup."""
+    import numpy as np
+
+    segments, _ = model.transcribe(np.zeros(16000, dtype=np.float32), language="en", beam_size=1)
+    list(segments)
+
+
 class WhisperSTTProvider(BaseSTTProvider):
     """Production faster-whisper STT with CUDA/GPU acceleration and word timestamps."""
 
@@ -106,13 +131,17 @@ class WhisperSTTProvider(BaseSTTProvider):
             logger.info(
                 f"Loading faster-whisper model '{model_size}' on device={device} (compute_type={compute_type})..."
             )
-            self._model = WhisperModel(
+            model = WhisperModel(
                 model_size_or_path=model_size,
                 device=device,
                 compute_type=compute_type,
             )
+            # Loading can succeed while inference fails (e.g. CUDA runtime DLLs missing), so prove it works now
+            # instead of failing on every student answer later.
+            _smoke_test(model)
+            self._model = model
             self._active_device = device
-            logger.info(f"faster-whisper model loaded successfully on {device}.")
+            logger.info(f"faster-whisper model loaded and verified on {device}.")
         except Exception as e:
             logger.warning(
                 f"CRITICAL WARNING: Failed to initialize faster-whisper on requested device '{settings.WHISPER_DEVICE}': {e}. "
@@ -121,11 +150,13 @@ class WhisperSTTProvider(BaseSTTProvider):
             try:
                 from faster_whisper import WhisperModel
 
-                self._model = WhisperModel(
-                    model_size_or_path="base.en",
+                model = WhisperModel(
+                    model_size_or_path=settings.WHISPER_MODEL,
                     device="cpu",
                     compute_type="int8",
                 )
+                _smoke_test(model)
+                self._model = model
                 self._active_device = "cpu"
                 logger.warning("Fallback CPU faster-whisper model initialized. Transcription latency may increase.")
             except Exception as cpu_err:
@@ -146,8 +177,13 @@ class WhisperSTTProvider(BaseSTTProvider):
                 return await MockSTTProvider().transcribe(audio_data, initial_prompt=initial_prompt)
             raise RuntimeError("Whisper model is not loaded. Cannot transcribe audio without a valid STT model.")
 
-        # Handle in-memory bytes or file path
-        if isinstance(audio_data, bytes):
+        # Prefer handing Whisper raw samples: our pipeline already produces 16 kHz mono WAV, and this
+        # avoids faster-whisper's PyAV decoder, whose API changes between releases (av 19 broke it).
+        pcm = _read_pcm16_wav(audio_data)
+        audio_source: Any
+        if pcm is not None:
+            audio_source = pcm
+        elif isinstance(audio_data, bytes):
             audio_source = io.BytesIO(audio_data)
         elif isinstance(audio_data, Path):
             audio_source = str(audio_data)

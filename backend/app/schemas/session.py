@@ -34,10 +34,15 @@ class SessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class SessionDetailResponse(SessionResponse):
+class SessionListItem(SessionResponse):
+    """Session row for dashboards: includes display names so lists need no extra lookups."""
+
     subject_name: Optional[str] = None
     subject_code: Optional[str] = None
     student_name: Optional[str] = None
+
+
+class SessionDetailResponse(SessionListItem):
     turns: List[TurnResponse] = []
     final_report: Optional[Dict[str, Any]] = None
 

@@ -28,6 +28,7 @@ def setup_logging(debug: bool = True) -> logging.Logger:
     # Suppress overly chatty external libraries
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+    logging.getLogger("alembic").setLevel(logging.WARNING)  # logs every plugin it loads at INFO
 
     logger = logging.getLogger("vivaiq")
     logger.setLevel(log_level)

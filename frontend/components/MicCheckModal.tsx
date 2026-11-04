@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, ShieldCheck, Check, AlertCircle, Volume2 } from "lucide-react";
 import Button from "@/components/ui/Button";
+import type { WebkitWindow } from "@/lib/audio-recorder";
 
 interface MicCheckModalProps {
   isOpen: boolean;
@@ -27,27 +28,27 @@ export default function MicCheckModal({
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    if (!isOpen) {
-      stopMic();
-      return;
+  const stopMic = useCallback(() => {
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+    setMicVolume(0);
+  }, []);
 
-    startMicCheck();
-
-    return () => {
-      stopMic();
-    };
-  }, [isOpen]);
-
-  const startMicCheck = async () => {
+  const startMicCheck = useCallback(async () => {
     try {
-      setErrorMsg(null);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      setErrorMsg(null);
       setMicGranted(true);
 
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const audioCtx = new (window.AudioContext || (window as WebkitWindow).webkitAudioContext)();
       audioContextRef.current = audioCtx;
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
@@ -71,24 +72,21 @@ export default function MicCheckModal({
       };
 
       updateLevel();
-    } catch (err: any) {
+    } catch {
       setErrorMsg("Microphone access was denied. Please allow microphone permissions in your browser.");
       setMicGranted(false);
     }
-  };
+  }, []);
 
-  const stopMic = () => {
-    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
-    }
-    setMicVolume(0);
-  };
+  useEffect(() => {
+    if (!isOpen) return;
+    // Start after the effect commits so permission/state updates never run inside it.
+    const timer = setTimeout(() => void startMicCheck(), 0);
+    return () => {
+      clearTimeout(timer);
+      stopMic();
+    };
+  }, [isOpen, startMicCheck, stopMic]);
 
   if (!isOpen) return null;
 

@@ -15,13 +15,27 @@ export default function ThemeToggle({ className = "" }: ThemeToggleProps) {
     <button
       onClick={toggleTheme}
       type="button"
-      aria-label="Toggle theme"
-      className={`w-10 h-10 rounded-full flex items-center justify-center transition-all cursor-pointer border border-border-default bg-bg-card hover:bg-bg-card-subtle text-text-secondary hover:text-text-primary shadow-sm ${className}`}
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 cursor-pointer ${className}`}
+      style={{
+        background: "var(--bg-card)",
+        border: "1px solid var(--border-default)",
+        color: "var(--text-muted)",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.color = "var(--text-primary)";
+        (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-emphasis)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+        (e.currentTarget as HTMLButtonElement).style.borderColor = "var(--border-default)";
+      }}
     >
       {theme === "dark" ? (
-        <Sun className="w-4 h-4 text-text-secondary hover:text-text-primary transition-colors" />
+        <Sun className="w-3.5 h-3.5" />
       ) : (
-        <Moon className="w-4 h-4 text-text-secondary hover:text-text-primary transition-colors" />
+        <Moon className="w-3.5 h-3.5" />
       )}
     </button>
   );

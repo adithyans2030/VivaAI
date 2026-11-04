@@ -21,13 +21,71 @@ export interface WordTimestamp {
   probability: number;
 }
 
+export type AuthenticityLevel = "low" | "medium" | "high" | "unknown";
+
+export interface AdvisoryAuthenticity {
+  likelihood: AuthenticityLevel;
+  confidence: number | null;
+  reasons: string[] | null;
+  is_advisory: true;
+  disclaimer: string;
+}
+
+export interface QuestionPayload {
+  turn_id: string;
+  turn_number: number;
+  question_text: string;
+  topic: string;
+  question_type: string;
+  audio_b64: string | null;
+  /** MIME type of audio_b64 (e.g. audio/mpeg from EdgeTTS, audio/wav from Piper). */
+  audio_mime: string | null;
+  is_repeat?: boolean;
+}
+
+export interface FeedbackPayload {
+  turn_id: string;
+  score_0_10: number | null;
+  /** False for the warm-up, which only captures the speaking baseline. */
+  counts_toward_score: boolean;
+  feedback: string;
+  rubric: {
+    correctness: number;
+    completeness: number;
+    clarity: number;
+    depth: number;
+    missing_points: string[];
+    incorrect_claims: string[];
+  };
+  authenticity: AdvisoryAuthenticity;
+}
+
+export interface SessionCompletePayload {
+  session_id: string;
+  student_id: string;
+  subject_id: string;
+  status: string;
+  total_score: number | null;
+  turns_count: number;
+  authenticity: AdvisoryAuthenticity;
+  turn_summaries: Array<{
+    turn_number: number;
+    question_text: string;
+    question_type: string;
+    student_transcript: string | null;
+    score_0_10: number | null;
+    feedback: string | null;
+    authenticity_likelihood: AuthenticityLevel;
+  }>;
+}
+
 export interface WSEventHandlers {
   onStateChange?: (state: string, turnNumber: number) => void;
-  onQuestion?: (question: any) => void;
+  onQuestion?: (question: QuestionPayload) => void;
   onTTSAudio?: (audioB64: string, isLast: boolean) => void;
   onTranscript?: (text: string, words: WordTimestamp[]) => void;
-  onFeedback?: (feedback: any) => void;
-  onSessionComplete?: (summary: any) => void;
+  onFeedback?: (feedback: FeedbackPayload) => void;
+  onSessionComplete?: (summary: SessionCompletePayload) => void;
   onError?: (error: { code: string; message: string }) => void;
   onOpen?: () => void;
   onClose?: () => void;
@@ -36,21 +94,47 @@ export interface WSEventHandlers {
 export class VivaWebSocketClient {
   private ws: WebSocket | null = null;
   private url: string;
-  private token: string;
+  private baseUrl: string;
+  private getTicket?: () => Promise<string>;
   private handlers: WSEventHandlers = {};
-  private pingInterval: any = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
   private isExplicitlyClosed = false;
 
-  constructor(sessionId: string, authSecret: string, handlers: WSEventHandlers = {}, options: { isTicket?: boolean } = {}) {
+  /**
+   * @param options.getTicket Fetches a fresh single-use ticket. Tickets are consumed on
+   *   connect, so reconnecting after a network drop needs a new one.
+   */
+  constructor(
+    sessionId: string,
+    authSecret: string,
+    handlers: WSEventHandlers = {},
+    options: { isTicket?: boolean; getTicket?: () => Promise<string> } = {}
+  ) {
     const wsBase = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/api/v1/ws";
-    const authQuery = options.isTicket || authSecret.startsWith("wst_")
-      ? `ticket=${authSecret}`
-      : `token=${authSecret}`;
-    this.url = `${wsBase}/sessions/${sessionId}?${authQuery}`;
-    this.token = authSecret;
+    const authQuery = options.isTicket || options.getTicket || authSecret.startsWith("wst_")
+      ? `ticket=${encodeURIComponent(authSecret)}`
+      : `token=${encodeURIComponent(authSecret)}`;
+    this.baseUrl = `${wsBase}/sessions/${sessionId}`;
+    this.url = `${this.baseUrl}?${authQuery}`;
+    this.getTicket = options.getTicket;
     this.handlers = handlers;
+  }
+
+  private async reconnect() {
+    if (this.getTicket) {
+      try {
+        this.url = `${this.baseUrl}?ticket=${encodeURIComponent(await this.getTicket())}`;
+      } catch (err) {
+        this.handlers.onError?.({
+          code: "RECONNECT_FAILED",
+          message: err instanceof Error ? err.message : "Could not re-authenticate the session.",
+        });
+        return;
+      }
+    }
+    if (!this.isExplicitlyClosed) this.connect();
   }
 
   connect() {
@@ -100,7 +184,7 @@ export class VivaWebSocketClient {
         }
       };
 
-      this.ws.onclose = (event) => {
+      this.ws.onclose = () => {
         this.stopHeartbeat();
         this.handlers.onClose?.();
 
@@ -108,7 +192,7 @@ export class VivaWebSocketClient {
         if (!this.isExplicitlyClosed && this.reconnectAttempts < this.maxReconnectAttempts) {
           const timeout = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 10000);
           this.reconnectAttempts++;
-          setTimeout(() => this.connect(), timeout);
+          setTimeout(() => void this.reconnect(), timeout);
         }
       };
 

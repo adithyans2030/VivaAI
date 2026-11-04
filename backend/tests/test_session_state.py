@@ -88,7 +88,8 @@ async def test_session_state_machine_flow(student_user: User, mock_orchestrator:
         # 5. Finalize session
         final_report = await mock_orchestrator.finalize_session(db, session)
         assert session.status == SessionStatus.COMPLETED
-        assert session.total_score is not None
+        # Only the warm-up was answered; it never counts, so the session stays ungraded.
+        assert session.total_score is None
         assert session.overall_authenticity_likelihood in (
             AuthenticityLikelihood.LOW,
             AuthenticityLikelihood.MEDIUM,
@@ -146,3 +147,45 @@ def test_session_state_http_endpoint(student_user: User, teacher_user: User, mon
             assert state["turns_completed"] == 0
     finally:
         app.dependency_overrides.clear()
+
+
+async def test_warmup_turn_never_counts_toward_total(student_user: User, mock_orchestrator: VivaSessionOrchestrator):
+    from app.models.turn import Turn
+
+    async with test_async_session() as db:
+        db.add(Subject(id="subj-warm", name="OS", code="WARM1", description="", teacher_id="t"))
+        session = VivaSession(
+            id="sess-warm",
+            student_id=student_user.id,
+            subject_id="subj-warm",
+            status=SessionStatus.IN_PROGRESS,
+            recording_consent=True,
+        )
+        db.add(session)
+        db.add_all(
+            [
+                Turn(
+                    session_id="sess-warm",
+                    turn_number=1,
+                    question_text="Introduce yourself",
+                    question_type="warmup",
+                    score_0_10=0.0,
+                ),
+                Turn(
+                    session_id="sess-warm", turn_number=2, question_text="Q", question_type="conceptual", score_0_10=8.0
+                ),
+                Turn(session_id="sess-warm", turn_number=3, question_text="Q", question_type="probe", score_0_10=6.0),
+            ]
+        )
+        await db.commit()
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        loaded = (
+            await db.execute(
+                select(VivaSession).where(VivaSession.id == "sess-warm").options(selectinload(VivaSession.turns))
+            )
+        ).scalar_one()
+        report = await mock_orchestrator.finalize_session(db, loaded)
+
+    assert report["total_score"] == 7.0  # mean of 8 and 6; the warm-up's 0 is ignored

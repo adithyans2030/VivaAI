@@ -7,8 +7,15 @@ torch>=2.2.0
 
 # Speech-to-Text
 faster-whisper>=1.0.0
+# faster-whisper 1.2 calls av.open(metadata_errors=...): fails on PyAV 19, verified working on 15.1.
+av>=15,<16
+# GPU inference also needs the CUDA 12 runtime (cuBLAS + cuDNN 9). Without them Whisper
+# falls back to CPU automatically. Optional: pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
 
 # RAG & Semantic Embeddings
+# ChromaDB runs embedded (PersistentClient, no server) and embeds with its built-in ONNX
+# all-MiniLM-L6-v2 model, so it does not need torch. Its open advisories (CVE-2026-45829/30/31/33)
+# affect Chroma's HTTP server mode only; never expose a `chroma run` server.
 chromadb>=0.5.0
 sentence-transformers>=3.0.0
 

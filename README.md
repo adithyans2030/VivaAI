@@ -1,104 +1,86 @@
-# VivaIQ — AI Voice Viva Examiner
+# VivaIQ: AI Voice Viva Examiner
 
-VivaIQ is a production-grade web application in which an AI examiner conducts oral (*viva voce*) examinations with students by voice, grades answers based on retrieved subject matter, and provides an advisory, explainable authenticity assessment (detecting if a student is reading from notes rather than answering spontaneously in their own words).
-
----
-
-## Key Features
-
-- **Real-time Voice Viva**: Interactive voice examination with natural pacing and speech activity detection (Silero VAD).
-- **RAG-Grounded Questioning**: Topic extraction and chunk retrieval from uploaded PDFs, DOCX, TXT, and Markdown files.
-- **Adaptive Probing**: Examiners pose conceptual, application, and comparative questions, with dynamic follow-ups based on student performance.
-- **Subject-Grounded Grading**: Multi-dimensional rubrics (correctness, completeness, clarity, depth) with actionable feedback.
-- **Explainable Authenticity Analysis**: Advisory detection of reading vs. spontaneous speaking across 6 distinct signals (verbatim overlap, disfluency rate, pauses, prosody, response latency, and probe resilience).
-- **Teacher Dashboard**: Comprehensive reports, audio review with timestamped transcripts, class analytics, grade overrides with audit logs, and CSV export.
-- **Provider-Agnostic Engine**: Seamlessly switch between Ollama (local demo), Gemini, or Grok via environment variables.
+VivaIQ runs oral (*viva voce*) examinations by voice. An AI examiner asks questions grounded in the course
+material a teacher uploads, listens to the student's spoken answers, grades them against a rubric, and gives
+the teacher an **advisory**, explainable signal of whether a student seems to be reading rather than answering
+in their own words. Teachers review every result and make every decision.
 
 ---
 
-## Hardware Target: NVIDIA GTX 1650 (4GB VRAM)
+## Features
 
-To deliver low-latency voice interactions on consumer hardware (4GB VRAM):
-- **STT**: `faster-whisper` (`distil-small.en` or `base.en`) with int8/float16 quantization (<800MB VRAM).
-- **LLM**: Cloud-backed via `GeminiProvider` (zero VRAM footprint) or local `OllamaProvider` (`qwen2.5:3b` / `llama3.2:3b` in ~2GB VRAM).
-- **RAG Embeddings**: `sentence-transformers/all-MiniLM-L6-v2` or `bge-small-en-v1.5` (<150MB VRAM).
-- **TTS**: High-efficiency Piper or client-side Web Speech API fallback.
+- **Voice viva:** the examiner speaks each question; the student answers by microphone; end of speech is detected automatically (or press *Submit Answer*). Live captions, one repeat per question, resume after a dropped connection.
+- **Grounded questions:** teachers upload PDF, DOCX, TXT or MD; questions are generated from retrieved passages, vary in type (conceptual, application, compare/contrast, what-if, probe), and adapt in difficulty.
+- **Rubric grading:** correctness, completeness, clarity and depth, with missing points, incorrect claims and feedback. Strict JSON output; student speech is treated as untrusted input.
+- **Advisory authenticity analysis:** text overlap with course material, disfluency, pause placement, cadence, pitch, response latency and probe performance, compared with the student's own warm-up baseline. Always shown with reasons; **never changes a score**. See the [methodology and its limitations](docs/authenticity-methodology.md).
+- **Teacher dashboard:** sessions with transcripts, per-answer audio playback, rubric scores, reasons, notes, audited grade/flag overrides, PDF and CSV export, and class analytics.
+- **Provider-agnostic:** Ollama (local), Gemini or Grok for the LLM; faster-whisper for speech-to-text; browser, EdgeTTS or Piper for speech. Switch by configuration only.
+- **Privacy:** mandatory recording consent, per-subject teacher access, automatic deletion of recordings after 30 days, student data export and deletion.
 
----
+## Quickstart (about 5 minutes, no GPU needed)
 
-## Quickstart
+Prerequisites: Python 3.11+, Node.js 20+, ffmpeg on `PATH`.
 
-### Prerequisites
-- Python 3.11+
-- Node.js 18+
-- (Optional) Docker & Docker Compose
-- (Optional) NVIDIA GPU with CUDA drivers
-
-### 1. Clone & Configure Environment
 ```bash
-git clone <repo-url>
-cd VivaAI
-cp .env.example .env
-```
+git clone <repo-url> && cd VivaAI
+cp .env.example .env                              # demo profile: DEMO_MODE=true, mock models
+cp frontend/.env.example frontend/.env.local
 
-### 2. Backend Setup
-```bash
 cd backend
 python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Linux/macOS:
-source .venv/bin/activate
-
+source .venv/bin/activate                         # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+python -m app.scripts.seed                        # admin + demo accounts
+python -m app.scripts.seed_demo                   # course material + two reviewed vivas
+uvicorn app.main:app --port 8000
+
+# new terminal
+cd frontend && npm install && npm run dev
 ```
 
-Run tests to verify the installation:
+Open http://localhost:3000 and sign in:
+
+| Role | Email | Password |
+|---|---|---|
+| Teacher | `teacher@vivaiq.edu` | `teacher123` |
+| Student | `student@vivaiq.edu` | `student123` |
+| Admin | `admin@vivaiq.edu` | `admin123` |
+
+The demo profile uses **mock** models: questions are scripted and transcripts are canned. To run real
+vivas, install `requirements-ml.txt`, run Ollama, and set `DEMO_MODE=false`, `LLM_PROVIDER=ollama`,
+`STT_PROVIDER=whisper` (details in the [runbook](docs/runbook.md#2-configuration)).
+
+> The root `.env` overrides `backend/.env` if both exist.
+
+Docker: `docker compose up` (add `--profile gpu` for the CUDA backend).
+
+## Hardware
+
+Designed for a 4 GB GPU (e.g. GTX 1650): Whisper `base.en`/`distil-small.en` (< 1 GB) plus a 2–3B Ollama
+model (≈ 2 GB), or a cloud LLM with no VRAM use. All model sizes are environment variables.
+
+## Development
+
 ```bash
-pytest -v
+cd backend && python -m pytest && ruff check . && mypy app
+cd frontend && npx tsc --noEmit && npx eslint . --max-warnings 0 && npm run build
 ```
 
-Start the FastAPI backend server:
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-API Documentation is available at: `http://localhost:8000/api/v1/docs`
+CI (GitHub Actions) runs these plus coverage gates and dependency audits; `pre-commit install` runs them locally.
 
-### 3. Frontend Setup
-```bash
-cd frontend
-npm install
-npm run dev
-```
-Access the application at `http://localhost:3000`.
+## Documentation
 
-### 4. One-Command Demo Database Seeding
-To populate sample users, subjects, syllabus materials, and pre-recorded viva sessions (both authentic and note-reading):
-```bash
-cd backend
-python -m app.scripts.seed_demo
-```
-- **Teacher Login**: `teacher@vivaiq.edu` / `TeacherPass123!`
-- **Student Login**: `alex@student.edu` / `StudentPass123!`
-- **Student Login**: `robert@student.edu` / `StudentPass123!`
-
-For the complete operator walkthrough, see [Operator Runbook](docs/runbook.md) and [Authenticity Methodology](docs/authenticity-methodology.md).
-
----
-
-## Architecture
-
-```
-Browser (Next.js)  <-- WebSocket (audio/events) + REST -->  FastAPI
-                                                              |
-        +-----------+-----------+-----------+-----------+-----+------+
-        |           |           |           |           |            |
-       STT        RAG        LLM Gateway    TTS     Authenticity   DB/Storage
-   (Whisper)   (Chroma)   (Ollama|Gemini|  (Piper)   Analyzer     (SQL + files)
-                              Grok)
-```
-
----
+| Doc | Contents |
+|---|---|
+| [Architecture](docs/architecture.md) | Components, viva turn pipeline, code layout, hardware sizing |
+| [API reference](docs/api-reference.md) | REST endpoints, roles and access rules (live docs at `/api/v1/docs`) |
+| [WebSocket protocol](docs/websocket-protocol.md) | Real-time viva events, error codes, reconnect |
+| [Authenticity methodology](docs/authenticity-methodology.md) | Signals, scoring, calibration status, **known limitations** |
+| [Privacy & retention](docs/privacy-and-retention.md) | What is stored, who can see it, what leaves the server, deletion |
+| [Security](docs/security.md) | Controls and known gaps |
+| [Runbook & demo script](docs/runbook.md) | Setup, troubleshooting, 10-minute stakeholder demo |
+| [Roadmap](docs/ROADMAP.md) | Deferred and not-yet-built items |
 
 ## License
+
 MIT

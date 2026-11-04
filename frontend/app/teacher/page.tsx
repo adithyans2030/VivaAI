@@ -1,28 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { api, Subject, VivaSession, DocumentItem, Turn } from "@/lib/api";
+import { useCallback, useEffect, useState } from "react";
+import { api, Subject, VivaSession, DocumentItem } from "@/lib/api";
+import type { AuthenticityLevel } from "@/lib/ws";
 import Button from "@/components/ui/Button";
-import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
+import TurnAudio from "@/components/TurnAudio";
 import {
   Search,
   Filter,
   ShieldAlert,
-  ShieldCheck,
   AlertTriangle,
   Download,
   Edit3,
   UploadCloud,
   FileText,
-  Volume2,
-  Sparkles,
   Clock,
-  ArrowUpRight,
-  BarChart2,
   CheckCircle2,
   Info,
-  Layers,
   Save,
   X,
 } from "lucide-react";
@@ -42,22 +37,29 @@ export default function TeacherDashboardPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const isDemoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
   // Grade & Flag Override Modal
   const [isOverrideOpen, setIsOverrideOpen] = useState(false);
   const [overrideScore, setOverrideScore] = useState<number>(8.5);
-  const [overrideFlag, setOverrideFlag] = useState<string>("low");
+  const [overrideFlag, setOverrideFlag] = useState<AuthenticityLevel>("low");
   const [overrideReason, setOverrideReason] = useState<string>("");
   const [teacherNotes, setTeacherNotes] = useState<string>("");
   const [isSavingNotes, setIsSavingNotes] = useState(false);
   const [notesSavedSuccess, setNotesSavedSuccess] = useState(false);
 
-  useEffect(() => {
-    loadData();
+  // List rows carry no turns; fetch the full record (questions, transcripts, rubric, reasons).
+  const selectSession = useCallback(async (s: VivaSession) => {
+    setSelectedSession(s);
+    setTeacherNotes(s.teacher_notes || "");
+    try {
+      const detail = await api.getSession(s.id);
+      setSelectedSession((current) => (current?.id === s.id ? detail : current));
+    } catch (err) {
+      setActionError(`Could not load session details: ${(err instanceof Error && err.message) || "Server error"}`);
+    }
   }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setIsLoading(true);
     setLoadError(null);
     try {
@@ -72,150 +74,26 @@ export default function TeacherDashboardPage() {
         api.listDocuments(subjList[0].id).then(setDocuments).catch(() => {});
       }
       if (sessList.length > 0) {
-        setSelectedSession(sessList[0]);
-        setTeacherNotes(sessList[0].teacher_notes || "");
+        await selectSession(sessList[0]);
       }
-    } catch (err: any) {
-      if (isDemoMode) {
-        // Explicit Demo Mode preview data
-        const demoSubjects: Subject[] = [
-          {
-            id: "cs301",
-            name: "Operating Systems & Concurrency",
-            code: "CS301",
-            description: "Deadlocks, CPU Scheduling, Virtual Memory, Concurrency Primitives",
-            teacher_id: "teacher-1",
-            document_count: 3,
-          },
-        ];
-
-        const demoSessions: VivaSession[] = [
-          {
-            id: "sess-ada",
-            student_id: "s-1",
-            student_name: "Ada Lovelace",
-            subject_id: "cs301",
-            subject_name: "Operating Systems & Concurrency",
-            subject_code: "CS301",
-            status: "completed",
-            recording_consent: true,
-            total_score: 9.1,
-            overall_authenticity_likelihood: "low",
-            overall_authenticity_confidence: 0.94,
-            overall_authenticity_reasons: [
-              "Conversational pause rate matches natural spontaneous baseline (280ms mean pause)",
-              "Synthesized novel analogies for circular wait not found in course textbook",
-              "Prosodic variation indicates unrehearsed genuine cognitive synthesis",
-            ],
-            teacher_notes: "Strong conceptual grasp of mutual exclusion and memory barriers. Articulate responses under follow-up probing.",
-            created_at: new Date().toISOString(),
-            turns: [
-              {
-                id: "t-1",
-                turn_number: 1,
-                question_type: "conceptual",
-                topic: "Deadlocks",
-                question_text: "What are Coffman's four conditions for deadlock?",
-                transcript: "The four conditions are Mutual Exclusion, Hold and Wait, No Preemption, and Circular Wait. If any single one of these conditions is prevented, a deadlock cannot form in the system.",
-                score_0_10: 9.4,
-                authenticity_likelihood: "low",
-                authenticity_confidence: 0.95,
-                authenticity_reasons: [
-                  "Natural prosodic pitch variability and spontaneous cadence",
-                  "Spontaneous hesitation at technical terms indicating live recall",
-                ],
-                feedback: "Flawless enumeration with precise understanding of deadlock prevention.",
-              },
-              {
-                id: "t-2",
-                turn_number: 2,
-                question_type: "probe",
-                topic: "Banker's Algorithm",
-                question_text: "In your own words, why is Banker's algorithm impractical in general-purpose operating systems?",
-                transcript: "Because it requires processes to declare their maximum resource claim upfront. In modern operating systems like Linux, processes dynamically allocate heap memory and thread handles, so future resource requirements are fundamentally unpredictable.",
-                score_0_10: 8.8,
-                authenticity_likelihood: "low",
-                authenticity_confidence: 0.92,
-                authenticity_reasons: [
-                  "Zero verbatim overlap with uploaded lecture slides",
-                  "Natural sentence restarts and self-correction",
-                ],
-                feedback: "Insightful practical consideration cited regarding Linux dynamic memory allocations.",
-              },
-              {
-                id: "t-3",
-                turn_number: 3,
-                question_type: "application",
-                topic: "Virtual Memory",
-                question_text: "How does the Translation Lookaside Buffer (TLB) mitigate address translation overhead?",
-                transcript: "A full page table lookup requires two memory accesses per virtual reference. The TLB acts as a high-speed associative hardware cache for virtual-to-physical translations, giving typical hit rates above 95% and near single-cycle translation.",
-                score_0_10: 9.0,
-                authenticity_likelihood: "low",
-                authenticity_confidence: 0.96,
-                authenticity_reasons: [
-                  "Direct synthesis of concepts without script reading cadence",
-                ],
-                feedback: "Accurate physical memory breakdown and cache hierarchy explanation.",
-              },
-            ],
-          },
-          {
-            id: "sess-bob",
-            student_id: "s-2",
-            student_name: "Robert Smith",
-            subject_id: "cs301",
-            subject_name: "Operating Systems & Concurrency",
-            subject_code: "CS301",
-            status: "completed",
-            recording_consent: true,
-            total_score: 6.4,
-            overall_authenticity_likelihood: "medium",
-            overall_authenticity_confidence: 0.78,
-            overall_authenticity_reasons: [
-              "High 4-gram verbatim overlap (42%) with Silberschatz chapter 7 textbook excerpt",
-              "Atypical rhythmic pacing with prolonged reading pauses at line breaks",
-              "Monotone vocal fundamental frequency across complex technical clauses",
-            ],
-            teacher_notes: "Advisory review recommended. Student answered accurately but vocal cadences match scripted note reading.",
-            created_at: new Date(Date.now() - 86400000).toISOString(),
-            turns: [
-              {
-                id: "t-b1",
-                turn_number: 1,
-                question_type: "conceptual",
-                topic: "Race Conditions",
-                question_text: "Define a critical section and describe how hardware test-and-set instructions provide mutual exclusion.",
-                transcript: "A critical section is a segment of code in which a process may be changing common variables, updating a table, or writing a file. The test-and-set instruction executes atomically to set the lock variable to true and return its prior value.",
-                score_0_10: 6.8,
-                authenticity_likelihood: "medium",
-                authenticity_confidence: 0.81,
-                authenticity_reasons: [
-                  "Verbatim overlap with textbook definition section 5.2",
-                  "Periodic breath pause matching document paragraphing",
-                ],
-                feedback: "Accurate textbook definition given, but lacked spontaneous reasoning when pressed.",
-              },
-            ],
-          },
-        ];
-
-        setSubjects(demoSubjects);
-        setSessions(demoSessions);
-        setSelectedSession(demoSessions[0]);
-        setTeacherNotes(demoSessions[0].teacher_notes || "");
-      } else {
-        setSessions([]);
-        setSubjects([]);
-        setSelectedSession(null);
-        setLoadError(
-          err?.message ||
-            "Unable to connect to VivaIQ server. Please verify the backend is running and that you are logged in as a teacher."
-        );
-      }
+    } catch (err) {
+      setSessions([]);
+      setSubjects([]);
+      setSelectedSession(null);
+      setLoadError(
+        (err instanceof Error && err.message) ||
+          "Unable to connect to VivaIQ server. Please verify the backend is running and that you are logged in as a teacher."
+      );
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectSession]);
+
+  useEffect(() => {
+    // Fetch on mount; state updates happen after the request resolves.
+    const timer = setTimeout(() => void loadData(), 0);
+    return () => clearTimeout(timer);
+  }, [loadData]);
 
   // Upload Document Handler
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -227,23 +105,8 @@ export default function TeacherDashboardPage() {
       await api.uploadDocument(subjects[0].id, file);
       const updatedDocs = await api.listDocuments(subjects[0].id);
       setDocuments(updatedDocs);
-    } catch (err: any) {
-      if (isDemoMode) {
-        setDocuments((prev) => [
-          ...prev,
-          {
-            id: `doc-${Date.now()}`,
-            subject_id: subjects[0].id,
-            filename: file.name,
-            file_type: file.name.split(".").pop() || "pdf",
-            file_size_bytes: file.size,
-            chunk_count: 18,
-            ingestion_status: "completed",
-          },
-        ]);
-      } else {
-        setActionError(`Document upload failed: ${err?.message || "Ensure the backend is online and document conforms to accepted types (PDF/TXT/MD <= 25MB)."}`);
-      }
+    } catch (err) {
+      setActionError(`Document upload failed: ${(err instanceof Error && err.message) || "Ensure the backend is online and document conforms to accepted types (PDF/TXT/MD <= 25MB)."}`);
     }
   };
 
@@ -260,24 +123,13 @@ export default function TeacherDashboardPage() {
       const updated: VivaSession = {
         ...selectedSession,
         total_score: overrideScore,
-        overall_authenticity_likelihood: overrideFlag as any,
+        overall_authenticity_likelihood: overrideFlag,
       };
       setSelectedSession(updated);
       setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
       setIsOverrideOpen(false);
-    } catch (err: any) {
-      if (isDemoMode) {
-        const updated: VivaSession = {
-          ...selectedSession,
-          total_score: overrideScore,
-          overall_authenticity_likelihood: overrideFlag as any,
-        };
-        setSelectedSession(updated);
-        setSessions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-        setIsOverrideOpen(false);
-      } else {
-        setActionError(`Failed to apply score override: ${err?.message || "Server error"}`);
-      }
+    } catch (err) {
+      setActionError(`Failed to apply score override: ${(err instanceof Error && err.message) || "Server error"}`);
     }
   };
 
@@ -290,17 +142,24 @@ export default function TeacherDashboardPage() {
       await api.updateTeacherNotes(selectedSession.id, teacherNotes);
       setNotesSavedSuccess(true);
       setTimeout(() => setNotesSavedSuccess(false), 2500);
-    } catch (err: any) {
-      if (isDemoMode) {
-        setSelectedSession((prev) => (prev ? { ...prev, teacher_notes: teacherNotes } : null));
-        setNotesSavedSuccess(true);
-        setTimeout(() => setNotesSavedSuccess(false), 2500);
-      } else {
-        setActionError(`Failed to save notes: ${err?.message || "Server error"}`);
-      }
+    } catch (err) {
+      setActionError(`Failed to save notes: ${(err instanceof Error && err.message) || "Server error"}`);
     } finally {
       setIsSavingNotes(false);
     }
+  };
+
+  // Class analytics, computed from the sessions this teacher can see.
+  const completedSessions = sessions.filter((s) => s.status === "completed");
+  const scored = completedSessions.filter((s) => s.total_score != null);
+  const classStats = {
+    completedCount: completedSessions.length,
+    scoredCount: scored.length,
+    averageScore: scored.length ? scored.reduce((sum, s) => sum + (s.total_score ?? 0), 0) / scored.length : null,
+    studentCount: new Set(sessions.map((s) => s.student_id)).size,
+    flaggedCount: completedSessions.filter(
+      (s) => s.overall_authenticity_likelihood === "medium" || s.overall_authenticity_likelihood === "high"
+    ).length,
   };
 
   // Filtered Sessions
@@ -393,14 +252,6 @@ export default function TeacherDashboardPage() {
         </div>
       )}
 
-      {isDemoMode && (
-        <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 text-xs flex items-center gap-2">
-          <Info className="w-4 h-4 text-blue-500 shrink-0" />
-          <span>
-            <strong className="font-semibold">Demo Mode Active:</strong> Operating in sandbox mode with illustrative course evaluations.
-          </span>
-        </div>
-      )}
 
       {/* SESSIONS TAB */}
       {activeTab === "sessions" && (
@@ -442,9 +293,20 @@ export default function TeacherDashboardPage() {
 
             {/* Candidate Session List */}
             <div className="space-y-2.5">
-              {filteredSessions.length === 0 ? (
+              {isLoading ? (
+                <div className="space-y-2.5" role="status" aria-label="Loading sessions">
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="h-[76px] rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] animate-pulse"
+                    />
+                  ))}
+                </div>
+              ) : filteredSessions.length === 0 ? (
                 <div className="p-8 text-center rounded-2xl bg-[var(--bg-card)] border border-[var(--border-default)] text-xs text-[var(--text-muted)]">
-                  No sessions match current search and flag filters.
+                  {sessions.length === 0
+                    ? "No viva sessions yet. Completed examinations will appear here."
+                    : "No sessions match current search and flag filters."}
                 </div>
               ) : (
                 filteredSessions.map((s) => {
@@ -455,9 +317,15 @@ export default function TeacherDashboardPage() {
                   return (
                     <div
                       key={s.id}
-                      onClick={() => {
-                        setSelectedSession(s);
-                        setTeacherNotes(s.teacher_notes || "");
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={isSelected}
+                      onClick={() => void selectSession(s)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          void selectSession(s);
+                        }
                       }}
                       className={`p-4 rounded-2xl border transition-all cursor-pointer ${
                         isSelected
@@ -544,14 +412,34 @@ export default function TeacherDashboardPage() {
                       <Edit3 className="w-3.5 h-3.5" />
                       Override Grade
                     </Button>
-                    <a
-                      href={api.getExportCsvUrl(selectedSession.id)}
-                      download
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-[var(--accent-primary)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-all shadow-xs"
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void api
+                          .downloadSessionExport(selectedSession.id, "csv")
+                          .catch((err) =>
+                            setActionError(`Export CSV failed: ${(err instanceof Error && err.message) || "Server error"}`)
+                          )
+                      }
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-[var(--accent-primary)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-all shadow-xs cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       Export CSV
-                    </a>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void api
+                          .downloadSessionExport(selectedSession.id, "pdf")
+                          .catch((err) =>
+                            setActionError(`Export PDF failed: ${(err instanceof Error && err.message) || "Server error"}`)
+                          )
+                      }
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl bg-[var(--accent-primary)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] transition-all shadow-xs cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Export PDF
+                    </button>
                   </div>
                 </div>
 
@@ -581,7 +469,9 @@ export default function TeacherDashboardPage() {
                       </span>
                     </div>
                     <div className="text-[11px] text-[var(--text-muted)] mt-1">
-                      Confidence: {Math.round((selectedSession.overall_authenticity_confidence || 0.9) * 100)}%
+                      {selectedSession.overall_authenticity_confidence != null
+                        ? `Confidence: ${Math.round(selectedSession.overall_authenticity_confidence * 100)}%`
+                        : "Not yet assessed"}
                     </div>
                   </div>
                 </div>
@@ -631,23 +521,29 @@ export default function TeacherDashboardPage() {
                           Turn #{turn.turn_number}: {turn.topic} ({turn.question_type})
                         </span>
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-[var(--bg-card)] border border-[var(--border-default)] text-[var(--text-primary)]">
-                          {turn.score_0_10}/10
+                          {turn.question_type === "warmup"
+                            ? "Warm-up · not scored"
+                            : turn.score_0_10 != null
+                              ? `${turn.score_0_10}/10`
+                              : "Not graded"}
                         </span>
                       </div>
 
                       <p className="text-xs font-medium text-[var(--text-primary)] leading-relaxed">
-                        "{turn.question_text}"
+                        &ldquo;{turn.question_text}&rdquo;
                       </p>
 
                       <div className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-default)] text-xs text-[var(--text-secondary)] italic leading-relaxed">
                         <span className="text-[10px] text-[var(--text-muted)] uppercase not-italic font-semibold tracking-wider block mb-1">
-                          Student's Spoken Answer:
+                          Student&rsquo;s Spoken Answer:
                         </span>
-                        "{turn.transcript}"
+                        {turn.transcript ? <>&ldquo;{turn.transcript}&rdquo;</> : <span className="not-italic">Not answered</span>}
                       </div>
 
+                      {turn.transcript && <TurnAudio sessionId={selectedSession.id} turnId={turn.id} />}
+
                       <div className="text-[11px] text-[var(--text-secondary)] border-t border-[var(--border-default)] pt-2 flex items-center justify-between">
-                        <span>Feedback: {turn.feedback}</span>
+                        <span>Feedback: {turn.feedback || "—"}</span>
                       </div>
                     </div>
                   ))}
@@ -770,32 +666,36 @@ export default function TeacherDashboardPage() {
             <div className="p-5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
               <div className="text-xs text-[var(--text-secondary)] font-medium">Class Average Score</div>
               <div className="font-editorial text-3xl font-normal text-[var(--text-primary)] mt-2">
-                8.2 <span className="text-sm font-sans text-[var(--text-muted)]">/ 10</span>
+                {classStats.averageScore != null ? classStats.averageScore.toFixed(1) : "—"}{" "}
+                <span className="text-sm font-sans text-[var(--text-muted)]">/ 10</span>
               </div>
-              <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-2 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                Strong cohort baseline
+              <div className="text-[11px] text-[var(--text-muted)] mt-2">
+                Mean of {classStats.scoredCount} scored viva{classStats.scoredCount === 1 ? "" : "s"}
               </div>
             </div>
 
             <div className="p-5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
               <div className="text-xs text-[var(--text-secondary)] font-medium">Total Completed Vivas</div>
               <div className="font-editorial text-3xl font-normal text-[var(--text-primary)] mt-2">
-                {sessions.length}
+                {classStats.completedCount}
               </div>
               <div className="text-[11px] text-[var(--text-muted)] mt-2">
-                Across 2 active sections
+                {classStats.studentCount} student{classStats.studentCount === 1 ? "" : "s"} •{" "}
+                {sessions.length - classStats.completedCount} not finished
               </div>
             </div>
 
             <div className="p-5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-default)]">
               <div className="text-xs text-[var(--text-secondary)] font-medium">Advisory Authenticity Flags</div>
               <div className="font-editorial text-3xl font-normal text-[var(--text-primary)] mt-2">
-                1 <span className="text-sm font-sans text-[var(--text-muted)]">candidate</span>
+                {classStats.flaggedCount}{" "}
+                <span className="text-sm font-sans text-[var(--text-muted)]">
+                  session{classStats.flaggedCount === 1 ? "" : "s"}
+                </span>
               </div>
               <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5" />
-                Follow-up conversation suggested
+                Medium or high: advisory, worth a conversation
               </div>
             </div>
           </div>
@@ -845,7 +745,7 @@ export default function TeacherDashboardPage() {
                 </label>
                 <select
                   value={overrideFlag}
-                  onChange={(e) => setOverrideFlag(e.target.value)}
+                  onChange={(e) => setOverrideFlag(e.target.value as AuthenticityLevel)}
                   className="w-full px-4 py-2.5 text-xs rounded-xl border border-[var(--border-default)] bg-[var(--bg-card-subtle)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--border-focus)] focus:ring-1 focus:ring-[var(--border-focus)]"
                 >
                   <option value="low">Low Likelihood (Spontaneous Answer)</option>

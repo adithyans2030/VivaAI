@@ -1,5 +1,6 @@
 """Teacher reports, grade overrides, and audit trails."""
 
+import asyncio
 import csv
 import io
 from typing import Annotated, Any, Dict
@@ -9,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_current_user, require_role
+from app.api.deps import ensure_session_access, get_current_user, require_role
 from app.core.database import get_db
 from app.models.audit import AuditLog, ScoreOverride
 from app.models.session import VivaSession
@@ -21,8 +22,14 @@ from app.schemas.report import (
     TeacherOverrideRequest,
 )
 from app.schemas.turn import TurnResponse
+from app.services.report_pdf import build_session_pdf
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+ADVISORY_EXPORT_NOTE = (
+    "Authenticity columns are ADVISORY ONLY: indicators to prompt a conversation with the student, "
+    "not evidence of misconduct. They never change scores. See docs/authenticity-methodology.md for limitations."
+)
 
 
 @router.get("/sessions/{session_id}", response_model=SessionReport)
@@ -47,6 +54,7 @@ async def get_session_report(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with id '{session_id}' not found",
         )
+    await ensure_session_access(db, current_user, session)
 
     if current_user.role == UserRole.STUDENT and session.student_id != current_user.id:
         raise HTTPException(
@@ -86,6 +94,7 @@ async def update_teacher_notes(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with id '{session_id}' not found",
         )
+    await ensure_session_access(db, teacher, session)
 
     prev_notes = session.teacher_notes
     session.teacher_notes = payload.teacher_notes
@@ -120,6 +129,7 @@ async def override_score_or_flag(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with id '{session_id}' not found",
         )
+    await ensure_session_access(db, teacher, session)
 
     original_score = session.total_score or 0.0
     original_flag = session.overall_authenticity_likelihood.value
@@ -141,7 +151,7 @@ async def override_score_or_flag(
         # Recalculate session total score as average of turns
         all_turns_stmt = select(Turn).where(Turn.session_id == session_id)
         turns = (await db.execute(all_turns_stmt)).scalars().all()
-        scored_turns = [t.score_0_10 for t in turns if t.score_0_10 is not None]
+        scored_turns = [t.score_0_10 for t in turns if t.score_0_10 is not None and t.question_type != "warmup"]
         if scored_turns:
             session.total_score = round(sum(scored_turns) / len(scored_turns), 2)
     else:
@@ -203,6 +213,7 @@ async def export_session_csv(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Session with id '{session_id}' not found",
         )
+    await ensure_session_access(db, teacher, session)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -213,9 +224,9 @@ async def export_session_csv(
             "Question",
             "Student Transcript",
             "Score (0-10)",
-            "Authenticity Likelihood",
-            "Authenticity Confidence",
-            "Authenticity Reasons",
+            "Authenticity Likelihood (Advisory)",
+            "Authenticity Confidence (Advisory)",
+            "Authenticity Reasons (Advisory)",
             "Feedback",
         ]
     )
@@ -236,9 +247,44 @@ async def export_session_csv(
             ]
         )
 
+    # Exports travel without the UI, so the advisory status must travel with them.
+    writer.writerow([])
+    writer.writerow([ADVISORY_EXPORT_NOTE])
     csv_content = output.getvalue()
     return Response(
         content=csv_content,
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=viva_report_{session_id}.csv"},
+    )
+
+
+@router.get("/sessions/{session_id}/export/pdf")
+async def export_session_pdf(
+    session_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    teacher: Annotated[User, Depends(require_role([UserRole.TEACHER, UserRole.ADMIN]))],
+) -> Response:
+    """Export the session report (questions, answers, scores, advisory authenticity) as PDF."""
+    stmt = (
+        select(VivaSession)
+        .where(VivaSession.id == session_id)
+        .options(
+            selectinload(VivaSession.turns),
+            selectinload(VivaSession.student),
+            selectinload(VivaSession.subject),
+        )
+    )
+    session = (await db.execute(stmt)).scalar_one_or_none()
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Session with id '{session_id}' not found",
+        )
+    await ensure_session_access(db, teacher, session)
+
+    pdf_bytes = await asyncio.to_thread(build_session_pdf, session, list(session.turns))
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=viva_report_{session_id}.pdf"},
     )

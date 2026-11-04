@@ -109,29 +109,36 @@ async def test_full_viva_lifecycle(client: TestClient, admin_user: User) -> None
     with client.websocket_connect(f"/api/v1/ws/sessions/{session_id}?ticket={ticket}") as ws:
         assert ws.receive_json()["type"] == "session_state"
 
-        ws.send_json({"type": "request_question", "payload": {}})
-        assert ws.receive_json()["payload"]["state"] == "examiner_speaking"
-        question = ws.receive_json()
-        assert question["type"] == "question"
-        assert question["payload"]["question_text"]
-        turn_id = question["payload"]["turn_id"]
-        assert ws.receive_json()["payload"]["state"] == "listening"
+        # Warm-up first (baseline only, never scored), then a real question.
+        scores = []
+        for expected_type_is_warmup in (True, False):
+            ws.send_json({"type": "request_question", "payload": {}})
+            assert ws.receive_json()["payload"]["state"] == "examiner_speaking"
+            question = ws.receive_json()
+            assert question["type"] == "question"
+            assert question["payload"]["question_text"]
+            assert (question["payload"]["question_type"] == "warmup") is expected_type_is_warmup
+            turn_id = question["payload"]["turn_id"]
+            assert ws.receive_json()["payload"]["state"] == "listening"
 
-        chunk = base64.b64encode(b"\x00\x00" * 400).decode("utf-8")
-        ws.send_json({"type": "audio_chunk", "payload": {"turn_id": turn_id, "chunk_index": 0, "audio_b64": chunk}})
-        ws.send_json({"type": "speech_end", "payload": {"turn_id": turn_id, "duration_ms": 1200}})
+            chunk = base64.b64encode(bytes(800)).decode("utf-8")
+            ws.send_json({"type": "audio_chunk", "payload": {"turn_id": turn_id, "chunk_index": 0, "audio_b64": chunk}})
+            ws.send_json({"type": "speech_end", "payload": {"turn_id": turn_id, "duration_ms": 1200}})
 
-        assert ws.receive_json()["payload"]["state"] == "processing"
-        transcript = ws.receive_json()
-        assert transcript["type"] == "transcript"
-        assert transcript["payload"]["text"]
-        feedback = ws.receive_json()
-        assert feedback["type"] == "feedback"
-        assert 0 <= feedback["payload"]["score_0_10"] <= 10
+            assert ws.receive_json()["payload"]["state"] == "processing"
+            transcript = ws.receive_json()
+            assert transcript["type"] == "transcript"
+            assert transcript["payload"]["text"]
+            feedback = ws.receive_json()
+            assert feedback["type"] == "feedback"
+            assert 0 <= feedback["payload"]["score_0_10"] <= 10
+            assert feedback["payload"]["counts_toward_score"] is not expected_type_is_warmup
+            scores.append(feedback["payload"]["score_0_10"])
 
         ws.send_json({"type": "end_session", "payload": {}})
         complete = ws.receive_json()
         assert complete["type"] == "session_complete"
+        assert complete["payload"]["total_score"] == scores[1]  # warm-up excluded
 
     # The ticket was consumed: reusing it must fail
     with pytest.raises(Exception):
@@ -143,8 +150,8 @@ async def test_full_viva_lifecycle(client: TestClient, admin_user: User) -> None
     assert resp.status_code == 200, resp.text
     report = resp.json()
     assert report["student_name"] == "E2E Student"
-    assert len(report["turns"]) == 1
-    assert report["turns"][0]["transcript"]
+    assert len(report["turns"]) == 2
+    assert all(t["transcript"] for t in report["turns"])
     assert isinstance(report["authenticity_reasons"], list)
 
     # Students cannot use teacher-only tooling
@@ -174,6 +181,8 @@ async def test_full_viva_lifecycle(client: TestClient, admin_user: User) -> None
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/csv")
     assert "9.0" in resp.text
+    assert "Authenticity Likelihood (Advisory)" in resp.text
+    assert "ADVISORY ONLY" in resp.text
 
     # 9. Completed sessions cannot be reconnected to
     resp = client.post(f"/api/v1/sessions/{session_id}/ws-ticket", headers=_auth(student_token))

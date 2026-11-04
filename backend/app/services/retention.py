@@ -11,22 +11,20 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.models.session import SessionStatus, VivaSession
+from app.models.session import VivaSession
+from app.services import auth_state
 
 
 async def cleanup_expired_audio(db: AsyncSession, retention_days: Optional[int] = None) -> int:
-    """Scan and delete audio files for completed sessions exceeding the retention window."""
+    """Delete audio for every session created before the retention window.
+
+    Status is deliberately ignored: a session still "in progress" after the window was
+    abandoned (e.g. the tab was closed), and its recordings must not be kept forever.
+    """
     days = retention_days if retention_days is not None else settings.AUDIO_RETENTION_DAYS
     cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
-    stmt = (
-        select(VivaSession)
-        .where(
-            VivaSession.created_at < cutoff_date,
-            VivaSession.status.in_([SessionStatus.COMPLETED, SessionStatus.CANCELLED]),
-        )
-        .options(selectinload(VivaSession.turns))
-    )
+    stmt = select(VivaSession).where(VivaSession.created_at < cutoff_date).options(selectinload(VivaSession.turns))
     result = await db.execute(stmt)
     expired_sessions = result.scalars().all()
 
@@ -66,6 +64,8 @@ async def run_retention_forever(
         try:
             async with session_factory() as db:
                 await cleanup_expired_audio(db)
+            async with session_factory() as db:
+                await auth_state.purge_expired(db)
         except Exception as e:  # never let a bad run stop future runs
             logger.error(f"Retention sweep failed: {e}")
         await asyncio.sleep(interval_seconds)

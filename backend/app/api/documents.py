@@ -9,13 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_role
+from app.api.deps import ensure_subject_owner, get_current_user, require_role
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.document import Document, IngestionStatus
 from app.models.subject import Subject
 from app.models.user import User, UserRole
 from app.schemas.document import DocumentIngestionStatusResponse, DocumentResponse
+from app.services.rag import get_rag_store
 
 router = APIRouter(tags=["documents"])
 
@@ -79,6 +80,7 @@ async def upload_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Subject with id '{subject_id}' not found",
         )
+    ensure_subject_owner(teacher, subject)
 
     raw_filename = file.filename or "uploaded_document"
     clean_filename = sanitize_filename(raw_filename)
@@ -184,8 +186,11 @@ async def delete_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document '{document_id}' not found",
         )
+    subject = (await db.execute(select(Subject).where(Subject.id == doc.subject_id))).scalar_one()
+    ensure_subject_owner(teacher, subject)
 
-    # Remove physical file
+    # Remove its vectors too, or deleted material would keep shaping questions and grading.
+    await get_rag_store().delete_document(doc.subject_id, doc.id)
     Path(doc.file_path).unlink(missing_ok=True)
 
     await db.delete(doc)

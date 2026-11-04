@@ -11,17 +11,16 @@ from app.api.deps import get_current_user, require_role
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
-    check_rate_limit,
     create_access_token,
     create_refresh_token,
     decode_token,
     get_password_hash,
-    revoke_token_jti,
     verify_password,
 )
 from app.models.user import User, UserRole
 from app.schemas.token import RefreshTokenRequest, Token
 from app.schemas.user import UserAdminCreate, UserRegister, UserResponse
+from app.services import auth_state
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,7 +33,7 @@ async def register_user(
 ) -> User:
     """Register a new student account. Public self-registration is strictly restricted to STUDENT role."""
     client_ip = request.client.host if request.client else "unknown"
-    if not check_rate_limit(f"reg_{client_ip}", max_requests=10, window_seconds=60):
+    if not await auth_state.allow_request(db, f"reg_{client_ip}", max_requests=10, window_seconds=60):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many registration attempts. Please wait before retrying.",
@@ -99,7 +98,7 @@ async def login_for_access_token(
     """OAuth2 compatible token login with rate limiting."""
     client_ip = request.client.host if request.client else "unknown"
     rate_key = f"login_{client_ip}_{form_data.username}"
-    if not check_rate_limit(rate_key, max_requests=10, window_seconds=60):
+    if not await auth_state.allow_request(db, rate_key, max_requests=10, window_seconds=60):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Please wait 1 minute before trying again.",
@@ -144,15 +143,20 @@ async def refresh_access_token(
             raise ValueError("Invalid token type")
         old_jti = payload.get("jti")
         user_id = payload.get("sub")
+        if not old_jti:
+            raise ValueError("Token has no id")
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid or expired refresh token: {str(exc)}",
         )
 
-    # Invalidate the old refresh token JTI to prevent reuse
-    if old_jti:
-        revoke_token_jti(old_jti)
+    # Rotation: each refresh token works once. A second use (replay or race) is refused.
+    if not await auth_state.revoke_once(db, old_jti, float(payload["exp"])):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token: Token has been revoked",
+        )
 
     stmt = select(User).where(User.id == user_id)
     user = (await db.execute(stmt)).scalar_one_or_none()
@@ -176,6 +180,7 @@ async def refresh_access_token(
 @router.post("/logout")
 async def logout(
     current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
     body: Optional[RefreshTokenRequest] = None,
 ) -> dict:
     """Revoke tokens upon logout (WS-2.3)."""
@@ -183,8 +188,8 @@ async def logout(
         try:
             payload = decode_token(body.refresh_token)
             jti = payload.get("jti")
-            if jti:
-                revoke_token_jti(jti)
+            if jti and payload.get("sub") == current_user.id:
+                await auth_state.revoke_once(db, jti, float(payload["exp"]))
         except Exception:
             pass
     return {"message": "Successfully logged out and revoked session token"}

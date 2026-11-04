@@ -1,6 +1,7 @@
 """VivaIQ Models Package."""
 
 from app.models.audit import AuditLog, ScoreOverride
+from app.models.auth_state import RateLimitEvent, RevokedToken, WsTicket
 from app.models.document import Document, IngestionStatus
 from app.models.session import AuthenticityLikelihood, SessionStatus, VivaSession
 from app.models.subject import Subject
@@ -19,4 +20,7 @@ __all__ = [
     "Turn",
     "AuditLog",
     "ScoreOverride",
+    "RevokedToken",
+    "WsTicket",
+    "RateLimitEvent",
 ]

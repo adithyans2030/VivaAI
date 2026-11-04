@@ -16,121 +16,177 @@ interface AudioOrbProps {
   onClick?: () => void;
 }
 
+const orbConfig = {
+  idle: {
+    label: "Ready to Begin",
+    sublabel: "Initiate your voice examination",
+    icon: Sparkles,
+    gradient: "linear-gradient(145deg, #1a2740 0%, #1f3050 50%, #162238 100%)",
+    glow: "rgba(74, 158, 255, 0.1)",
+    border: "rgba(74, 158, 255, 0.2)",
+    iconColor: "var(--text-muted)",
+    dotColor: "var(--text-muted)",
+  },
+  examiner_speaking: {
+    label: "Examiner Speaking",
+    sublabel: "Listen carefully to the question",
+    icon: Volume2,
+    gradient: "linear-gradient(145deg, #0d2744 0%, #1a4a80 50%, #0d3361 100%)",
+    glow: "rgba(74, 158, 255, 0.45)",
+    border: "rgba(74, 158, 255, 0.6)",
+    iconColor: "#4a9eff",
+    dotColor: "#4a9eff",
+  },
+  listening: {
+    label: "Listening to You...",
+    sublabel: "Speak naturally in your own words",
+    icon: Mic,
+    gradient: "linear-gradient(145deg, #0a3020 0%, #155235 50%, #0e3a28 100%)",
+    glow: "rgba(59, 240, 170, 0.45)",
+    border: "rgba(59, 240, 170, 0.6)",
+    iconColor: "#3bf0aa",
+    dotColor: "#3bf0aa",
+  },
+  processing: {
+    label: "Evaluating Response...",
+    sublabel: "Analyzing against grounded rubric",
+    icon: Loader2,
+    gradient: "linear-gradient(145deg, #2a1a0d 0%, #4a3010 50%, #1e1408 100%)",
+    glow: "rgba(251, 191, 36, 0.35)",
+    border: "rgba(251, 191, 36, 0.5)",
+    iconColor: "#fbbf24",
+    dotColor: "#fbbf24",
+  },
+  completed: {
+    label: "Viva Completed",
+    sublabel: "Review your score report below",
+    icon: CheckCircle2,
+    gradient: "linear-gradient(145deg, #0a3020 0%, #1a5535 50%, #0a2d1e 100%)",
+    glow: "rgba(59, 240, 170, 0.3)",
+    border: "rgba(59, 240, 170, 0.55)",
+    iconColor: "#3bf0aa",
+    dotColor: "#3bf0aa",
+  },
+} as const;
+
 export default function AudioOrb({ state, audioLevel = 0, onClick }: AudioOrbProps) {
-  // Tailored to Sage Celadon & Forest Pine aesthetic
-  const config = {
-    idle: {
-      label: "Waiting to Begin",
-      color: "from-[var(--border-default)] via-[var(--bg-card-subtle)] to-[var(--bg-card)]",
-      glow: "shadow-black/10",
-      border: "border-[var(--border-default)]",
-      icon: Sparkles,
-      iconColor: "text-[var(--text-muted)]",
-      subtext: "Initiate your voice examination",
-    },
-    examiner_speaking: {
-      label: "Examiner Speaking",
-      color: "from-[#2D4F44] via-[#3E6B5D] to-[#6EA291]",
-      glow: "shadow-[var(--accent-primary)]/40",
-      border: "border-[#6EA291]/80",
-      icon: Volume2,
-      iconColor: "text-white",
-      subtext: "Listen carefully to the question",
-    },
-    listening: {
-      label: "Listening to Your Answer...",
-      color: "from-[#1B4332] via-[#2D6A4F] to-[#74C69D]",
-      glow: "shadow-emerald-500/40",
-      border: "border-[#74C69D]/80",
-      icon: Mic,
-      iconColor: "text-white",
-      subtext: "Speak naturally in your own words",
-    },
-    processing: {
-      label: "Evaluating Understanding...",
-      color: "from-[#2D4F44] via-[#D97706] to-[#6EA291]",
-      glow: "shadow-amber-500/30",
-      border: "border-amber-400/60",
-      icon: Loader2,
-      iconColor: "text-amber-200",
-      subtext: "Analyzing response & grounded rubric",
-    },
-    completed: {
-      label: "Viva Examination Completed",
-      color: "from-[#1B4332] via-[#2D4F44] to-[#40916C]",
-      glow: "shadow-emerald-500/30",
-      border: "border-emerald-400/80",
-      icon: CheckCircle2,
-      iconColor: "text-white",
-      subtext: "Review your comprehensive score report below",
-    },
-  }[state];
+  const cfg = orbConfig[state];
+  const IconComponent = cfg.icon;
 
-  const IconComponent = config.icon;
-
-  // Calculate dynamic scale based on audio volume
-  const dynamicScale = state === "listening" ? 1 + audioLevel * 0.35 : 1;
+  // Dynamic ring scale based on audio level
+  const dynamicScale = state === "listening" ? 1 + audioLevel * 0.3 : 1;
 
   return (
     <div
       onClick={onClick}
-      className="flex flex-col items-center justify-center p-6 space-y-5 select-none relative group cursor-default"
+      className="flex flex-col items-center justify-center space-y-5 select-none relative group"
     >
-      {/* Outer ambient wave rings */}
+      {/* Outer glow rings */}
       <div className="relative flex items-center justify-center">
-        {state === "listening" && (
-          <>
-            <div
-              className="absolute w-52 h-52 rounded-full border border-emerald-500/30 animate-ping pointer-events-none"
-              style={{ animationDuration: "2.4s" }}
-            />
-            <div
-              className="absolute w-44 h-44 rounded-full border border-emerald-400/40 animate-pulse-ring pointer-events-none"
-              style={{ transform: `scale(${1 + audioLevel * 0.6})` }}
-            />
-          </>
-        )}
+        {/* Ambient glow ring — always present */}
+        <div
+          className="absolute rounded-full pointer-events-none transition-all duration-500"
+          style={{
+            width: 200,
+            height: 200,
+            background: `radial-gradient(ellipse, ${cfg.glow} 0%, transparent 70%)`,
+          }}
+        />
 
-        {state === "examiner_speaking" && (
+        {/* Pulse ring for active states */}
+        {(state === "examiner_speaking" || state === "listening") && (
           <div
-            className="absolute w-44 h-44 rounded-full border border-[var(--border-focus)]/30 animate-pulse-ring pointer-events-none"
-            style={{ animationDuration: "2s" }}
+            className="absolute rounded-full border animate-pulse-ring pointer-events-none"
+            style={{
+              width: 172,
+              height: 172,
+              borderColor: cfg.border,
+              opacity: 0.5,
+              animationDuration: state === "listening" ? "2s" : "2.8s",
+            }}
           />
         )}
 
-        {/* Central Luminous Sphere */}
+        {/* Audio-reactive ring for listening */}
+        {state === "listening" && (
+          <div
+            className="absolute rounded-full border pointer-events-none transition-transform duration-75"
+            style={{
+              width: 148,
+              height: 148,
+              borderColor: cfg.border,
+              transform: `scale(${1 + audioLevel * 0.5})`,
+              opacity: 0.3 + audioLevel * 0.5,
+            }}
+          />
+        )}
+
+        {/* Central Orb */}
         <div
-          className={`w-36 h-36 rounded-full bg-gradient-to-tr ${config.color} border-2 ${config.border} shadow-2xl ${config.glow} flex items-center justify-center transition-all duration-150 relative overflow-hidden backdrop-blur-md`}
-          style={{ transform: `scale(${dynamicScale})` }}
+          className="relative w-32 h-32 rounded-full flex items-center justify-center transition-transform duration-150 overflow-hidden"
+          style={{
+            background: cfg.gradient,
+            border: `1.5px solid ${cfg.border}`,
+            boxShadow: `0 0 40px ${cfg.glow}, 0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)`,
+            transform: `scale(${dynamicScale})`,
+          }}
         >
-          {/* Inner glass glossy highlight */}
-          <div className="absolute top-2 left-6 w-16 h-8 rounded-full bg-white/20 blur-xs -rotate-45 pointer-events-none" />
+          {/* Gloss highlight */}
+          <div
+            className="absolute rounded-full pointer-events-none"
+            style={{
+              width: 64,
+              height: 28,
+              top: 10,
+              left: 14,
+              background: "rgba(255,255,255,0.12)",
+              filter: "blur(6px)",
+              transform: "rotate(-30deg)",
+            }}
+          />
+
+          {/* Inner glow */}
+          <div
+            className="absolute inset-0 rounded-full pointer-events-none"
+            style={{
+              background: `radial-gradient(ellipse at 35% 35%, ${cfg.glow} 0%, transparent 60%)`,
+            }}
+          />
 
           {/* Icon */}
-          <div className="relative z-10 flex items-center justify-center">
+          <div className="relative z-10">
             <IconComponent
-              className={`w-10 h-10 ${config.iconColor} ${
-                state === "processing" ? "animate-spin" : ""
-              }`}
+              className={state === "processing" ? "animate-spin" : ""}
+              style={{
+                width: 38,
+                height: 38,
+                color: cfg.iconColor,
+                filter: `drop-shadow(0 0 8px ${cfg.glow})`,
+              }}
             />
           </div>
         </div>
       </div>
 
-      {/* State Label & Guidance */}
-      <div className="text-center space-y-1">
+      {/* Labels */}
+      <div className="text-center space-y-1.5">
         <div className="flex items-center justify-center gap-2">
-          {state === "listening" && (
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          {(state === "listening" || state === "examiner_speaking") && (
+            <span
+              className="w-2 h-2 rounded-full animate-beacon shrink-0"
+              style={{ background: cfg.dotColor }}
+            />
           )}
-          {state === "examiner_speaking" && (
-            <span className="w-2 h-2 rounded-full bg-[var(--accent-primary)] animate-pulse" />
-          )}
-          <span className="text-sm font-semibold tracking-tight text-[var(--text-primary)]">
-            {config.label}
+          <span
+            className="text-sm font-semibold tracking-tight"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {cfg.label}
           </span>
         </div>
-        <p className="text-xs text-[var(--text-muted)] max-w-xs">{config.subtext}</p>
+        <p className="text-xs max-w-[200px]" style={{ color: "var(--text-muted)" }}>
+          {cfg.sublabel}
+        </p>
       </div>
     </div>
   );

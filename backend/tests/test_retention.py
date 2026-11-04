@@ -1,4 +1,4 @@
-"""Audio retention policy: only finished sessions older than the window lose their audio."""
+"""Audio retention policy: sessions older than the window lose their audio, whatever their status."""
 
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -23,7 +23,7 @@ def _audio_dir(root: Path, session_id: str) -> Path:
     return d
 
 
-async def test_cleanup_purges_only_expired_finished_sessions(
+async def test_cleanup_purges_all_expired_sessions_including_abandoned(
     student_user: User, teacher_user: User, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(settings, "AUDIO_STORAGE_PATH", tmp_path)
@@ -51,14 +51,15 @@ async def test_cleanup_purges_only_expired_finished_sessions(
             _audio_dir(tmp_path, sid)
         await db.commit()
 
-        assert await retention.cleanup_expired_audio(db, retention_days=30) == 1
+        assert await retention.cleanup_expired_audio(db, retention_days=30) == 2
 
         turns = {t.session_id: t for t in (await db.execute(select(Turn))).scalars()}
 
     assert not (tmp_path / "old-done").exists()
     assert turns["old-done"].student_audio_path is None
-    # In-progress and recent sessions keep their audio.
-    assert (tmp_path / "old-active").exists() and turns["old-active"].student_audio_path
+    # An in-progress session past the window was abandoned: its audio goes too.
+    assert not (tmp_path / "old-active").exists() and turns["old-active"].student_audio_path is None
+    # Recent sessions keep their audio.
     assert (tmp_path / "new-done").exists() and turns["new-done"].student_audio_path
 
 
