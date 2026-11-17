@@ -76,7 +76,8 @@ These are demo credentials. Change or remove them before any real use.
 ```powershell
 # terminal 1
 cd backend
-.\.venv\Scripts\uvicorn app.main:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+# Never a bare `uvicorn`: it may resolve to a system Python without Whisper/ChromaDB.
 
 # terminal 2
 cd frontend
@@ -121,11 +122,12 @@ Optional: `pip install pre-commit && pre-commit install` to run them on every co
 
 | Symptom | Fix |
 |---|---|
+| Viva room doesn't hear the student; `/ready` returns "Internal Server Error" | The backend was started with a Python outside `.venv` (a bare `uvicorn` found a system install without Whisper). Stop it and start with `.\.venv\Scripts\python -m uvicorn app.main:app --port 8000`. |
 | Backend exits with `STT_PROVIDER='mock' is only permitted…` | Set `DEMO_MODE=true`, or switch to real providers. Check the **root** `.env`, which overrides `backend/.env`. |
 | Everyone is logged out after a restart | `SECRET_KEY` is a placeholder; set a real one. |
-| `/ready` reports STT not loaded | Install `requirements-ml.txt`; for CUDA errors set `WHISPER_DEVICE=cpu`, `WHISPER_COMPUTE_TYPE=int8`. |
+| `/ready` reports STT not loaded | Install `requirements-ml.txt` into `.venv`; for CUDA errors set `WHISPER_DEVICE=cpu`, `WHISPER_COMPUTE_TYPE=int8`. |
 | Student answer returns "EMPTY_AUDIO" | Microphone permission denied or muted; check the level meter in the consent dialog. |
-| `/ready` shows `"chroma_active": false` / `rag_store_mode: in_memory_tfidf` | ChromaDB is not installed (`pip install -r requirements-ml.txt`). Without it, uploaded documents are indexed only in memory and **lost on every restart**. Once installed, the backend re-indexes completed documents automatically at startup. |
+| `/ready` shows `"chroma_active": false` / `rag_store_mode: in_memory_tfidf` | ChromaDB is not installed (`.\.venv\Scripts\python -m pip install -r requirements-ml.txt`). Without it, uploaded documents are indexed only in memory and **lost on every restart**. Once installed, the backend re-indexes completed documents automatically at startup. |
 | Teacher sees no sessions | Teachers only see sessions in subjects they own; log in as the subject's owner or as admin. |
 | `STT_FAILED` on answers | Check the backend log. Common causes: ffmpeg missing from `PATH` (browser WebM audio is not converted), or the Whisper model failed to load. |
 

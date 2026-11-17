@@ -29,7 +29,8 @@ interface CaptionRecognition {
   interimResults: boolean;
   lang: string;
   onresult: ((event: CaptionRecognitionEvent) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  onend: (() => void) | null;
   start: () => void;
   stop: () => void;
 }
@@ -39,6 +40,32 @@ type SpeechWindow = Window & {
 };
 
 const errorMessage = (err: unknown, fallback: string) => (err instanceof Error && err.message) || fallback;
+
+// Server errors after which the same question is still open and the student should simply answer again.
+const RETRY_ANSWER_CODES = new Set(["EMPTY_AUDIO", "STT_FAILED"]);
+// Caption errors that just mean "nothing heard yet"; anything else means captions cannot work here.
+const BENIGN_CAPTION_ERRORS = new Set(["no-speech", "aborted"]);
+const SLOW_EVALUATION_SECONDS = 20;
+
+/** Elapsed-time readout so a slow transcription never looks like a frozen page. */
+function EvaluationTimer({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const seconds = Math.max(0, Math.floor((now - since) / 1000));
+  return (
+    <span>
+      Transcribing and grading your answer… {seconds}s
+      {seconds >= SLOW_EVALUATION_SECONDS && (
+        <span className="block mt-1 text-amber-600 dark:text-amber-400">
+          This is taking longer than usual. The server may be busy; please keep this page open.
+        </span>
+      )}
+    </span>
+  );
+}
 
 export default function StudentVivaPage() {
   // Catalog & Session state
@@ -58,6 +85,8 @@ export default function StudentVivaPage() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [repeatedCount, setRepeatedCount] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState<QuestionPayload | null>(null);
+  const [evaluatingSince, setEvaluatingSince] = useState<number | null>(null);
+  const [captionsNote, setCaptionsNote] = useState<string | null>(null);
 
   // WebSocket callbacks live for the whole session, so they read these refs rather than
   // render-time state (which would be frozen at the moment the socket was created).
@@ -65,8 +94,16 @@ export default function StudentVivaPage() {
   const recorderRef = useRef<AudioStreamRecorder | null>(null);
   const recognitionRef = useRef<CaptionRecognition | null>(null);
   const playbackRef = useRef<HTMLAudioElement | null>(null);
+  // Held so Chrome cannot garbage-collect the utterance mid-sentence (which silently drops `onend`).
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const speechWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True once the mic has opened for the question currently being asked; a late `onend` must not reopen it.
+  const listenedForQuestionRef = useRef(false);
   const questionRef = useRef<QuestionPayload | null>(null);
   const transcriptRef = useRef("");
+  // Identifies the recording whose chunks may still be sent. Bumping it discards an in-flight
+  // recording (repeat, new question) so its tail cannot leak into the next answer.
+  const recordingIdRef = useRef(0);
 
   const updateTranscript = (text: string) => {
     transcriptRef.current = text;
@@ -96,6 +133,7 @@ export default function StudentVivaPage() {
       recognitionRef.current?.stop();
       playbackRef.current?.pause();
       if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+      if (speechWatchdogRef.current) clearTimeout(speechWatchdogRef.current);
     };
   }, [loadSubjects]);
 
@@ -108,10 +146,17 @@ export default function StudentVivaPage() {
     return recorder ? recorder.stop() : undefined;
   };
 
+  /** Stop the mic and throw the recording away instead of submitting it. */
+  const abandonListening = () => {
+    recordingIdRef.current++;
+    void stopListening();
+  };
+
   // Send speech_end only after the recorder has flushed its final chunk.
   const submitAnswer = async (durationMs?: number) => {
     const question = questionRef.current;
     setExaminerState("processing");
+    setEvaluatingSince(Date.now());
     const measured = await stopListening();
     if (question) {
       wsClientRef.current?.sendSpeechEnd(question.turn_id, durationMs ?? measured);
@@ -119,11 +164,20 @@ export default function StudentVivaPage() {
   };
 
   const startListening = () => {
+    if (speechWatchdogRef.current) clearTimeout(speechWatchdogRef.current);
+    speechWatchdogRef.current = null;
+    if (listenedForQuestionRef.current) return; // already listened (or answered) for this question
+    listenedForQuestionRef.current = true;
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    playbackRef.current?.pause();
     updateTranscript("");
     setExaminerState("listening");
+    setEvaluatingSince(null);
 
+    const recordingId = ++recordingIdRef.current;
     const recorder = new AudioStreamRecorder({
       onAudioChunk: (chunkB64, chunkIndex) => {
+        if (recordingId !== recordingIdRef.current) return; // recording was abandoned
         const question = questionRef.current;
         if (question) wsClientRef.current?.sendAudioChunk(question.turn_id, chunkIndex, chunkB64);
       },
@@ -138,7 +192,13 @@ export default function StudentVivaPage() {
 
     const w = window as SpeechWindow;
     const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!Recognition) return;
+    const captionsUnavailable =
+      "Live captions aren't available in this browser (use Chrome or Edge to see them). " +
+      "Your answer is still being recorded and will be transcribed when you submit.";
+    if (!Recognition) {
+      setCaptionsNote(captionsUnavailable);
+      return;
+    }
     try {
       const recognition = new Recognition();
       recognition.continuous = true;
@@ -154,7 +214,23 @@ export default function StudentVivaPage() {
         }
         updateTranscript(final || interim);
       };
-      recognition.onerror = () => {};
+      // Brave and some Chromium builds expose the API but every request fails ("network",
+      // "service-not-allowed"). Say so instead of leaving the box on "Awaiting speech input".
+      recognition.onerror = (event) => {
+        if (BENIGN_CAPTION_ERRORS.has(event.error)) return;
+        recognition.onend = null;
+        if (recognitionRef.current === recognition) recognitionRef.current = null;
+        setCaptionsNote(captionsUnavailable);
+      };
+      // Chrome ends "continuous" recognition after a pause; restart it while this answer is live.
+      recognition.onend = () => {
+        if (recognitionRef.current !== recognition) return;
+        try {
+          recognition.start();
+        } catch {
+          recognitionRef.current = null;
+        }
+      };
       recognition.start();
       recognitionRef.current = recognition;
     } catch (err) {
@@ -164,7 +240,16 @@ export default function StudentVivaPage() {
 
   // Play the server's neural TTS when provided; fall back to browser speech synthesis.
   const speakQuestion = (question: QuestionPayload) => {
+    // A question can arrive while the mic is open (repeat, or a reconnect replaying it).
+    if (recorderRef.current) abandonListening();
+    setEvaluatingSince(null);
     setExaminerState("examiner_speaking");
+    listenedForQuestionRef.current = false;
+    if (speechWatchdogRef.current) clearTimeout(speechWatchdogRef.current);
+    if (utteranceRef.current) {
+      utteranceRef.current.onend = null;
+      utteranceRef.current.onerror = null;
+    }
     playbackRef.current?.pause();
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 
@@ -177,7 +262,12 @@ export default function StudentVivaPage() {
       utterance.rate = 0.95; // Calm, deliberate examiner pace
       utterance.onend = startListening;
       utterance.onerror = startListening;
+      utteranceRef.current = utterance;
       window.speechSynthesis.speak(utterance);
+      // Chrome sometimes never fires onend/onerror (long sentences, network voices, blocked autoplay).
+      // Open the microphone anyway once the question should have finished (~2.5 words/s + margin).
+      const words = question.question_text.split(/\s+/).length;
+      speechWatchdogRef.current = setTimeout(startListening, (words / 2.5) * 1000 + 3000);
     };
 
     if (!question.audio_b64) {
@@ -187,6 +277,7 @@ export default function StudentVivaPage() {
     const audio = new Audio(`data:${question.audio_mime ?? "audio/mpeg"};base64,${question.audio_b64}`);
     playbackRef.current = audio;
     audio.onended = startListening;
+    audio.onerror = browserSpeak;
     audio.play().catch(browserSpeak);
   };
 
@@ -241,6 +332,7 @@ export default function StudentVivaPage() {
             authenticity_reasons: fb.authenticity.reasons ?? [],
           };
           setTurns((prev) => [...prev, completedTurn]);
+          setEvaluatingSince(null);
           ws.sendReady();
         },
         onSessionComplete: () => {
@@ -251,9 +343,16 @@ export default function StudentVivaPage() {
           // Speaking/listening are driven by local playback and the mic; the server
           // is authoritative for processing and completion.
           if (st === "processing" || st === "completed") setExaminerState(st);
+          if (st === "processing") setEvaluatingSince((since) => since ?? Date.now());
         },
         onError: (err) => {
           setLiveError(err.message || "An error occurred during examination.");
+          // The server kept the question open (nothing heard / transcription failed): reopen the
+          // mic so the student can answer again instead of being stuck on "Evaluating".
+          if (RETRY_ANSWER_CODES.has(err.code) && questionRef.current) {
+            listenedForQuestionRef.current = false;
+            startListening();
+          }
         },
       }, { getTicket: () => api.getWsTicket(sess.id) });
 
@@ -272,7 +371,7 @@ export default function StudentVivaPage() {
     const question = questionRef.current;
     if (repeatedCount >= 1 || !question) return;
     setRepeatedCount((c) => c + 1);
-    await stopListening();
+    abandonListening(); // what was said so far is discarded; the student answers after the repeat
     wsClientRef.current?.sendRepeatQuestion(question.turn_id);
   };
 
@@ -423,9 +522,17 @@ export default function StudentVivaPage() {
                 </div>
                 <div className="text-[11px] text-[var(--text-muted)]">
                   {examinerState === "listening" && "Speak clearly into your microphone"}
-                  {examinerState === "processing" && "Analyzing answer grounding and prosodic dynamics..."}
+                  {examinerState === "processing" &&
+                    (evaluatingSince ? <EvaluationTimer since={evaluatingSince} /> : "Transcribing and grading your answer…")}
                 </div>
               </div>
+
+              {examinerState === "examiner_speaking" && currentQuestion && (
+                <Button size="sm" variant="outline" onClick={startListening}>
+                  <Mic className="w-3.5 h-3.5 mr-1.5" />
+                  I&rsquo;m ready to answer
+                </Button>
+              )}
             </div>
 
             {/* Question Card & Live Speech Output */}
@@ -467,8 +574,15 @@ export default function StudentVivaPage() {
                         )}
                       </div>
                       <p className="text-xs text-[var(--text-secondary)] italic min-h-[44px]">
-                        {currentTranscript ? `“${currentTranscript}”` : "(Awaiting speech input...)"}
+                        {currentTranscript
+                          ? `“${currentTranscript}”`
+                          : examinerState === "listening"
+                            ? "(Speak now — your words will appear here…)"
+                            : "(Awaiting speech input...)"}
                       </p>
+                      {captionsNote && examinerState === "listening" && !currentTranscript && (
+                        <p className="text-[11px] text-[var(--text-muted)] not-italic">{captionsNote}</p>
+                      )}
                     </div>
 
                     {/* Control Actions */}

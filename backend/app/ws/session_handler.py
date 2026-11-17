@@ -319,6 +319,8 @@ async def viva_session_websocket(
                         await manager.send_json(session_id, {"type": "session_complete", "payload": report})
                         break
                     else:
+                        # A new question starts a new answer recording.
+                        manager.clear_audio_buffer(session_id)
                         await manager.send_json(
                             session_id,
                             {
@@ -384,6 +386,8 @@ async def viva_session_websocket(
                         continue
 
                     manager.increment_repeat_count(session_id, repeat_turn.id)
+                    # Drop whatever was recorded before the repeat; the student answers afresh.
+                    manager.clear_audio_buffer(session_id)
                     await manager.send_json(
                         session_id,
                         {
@@ -466,4 +470,4 @@ async def viva_session_websocket(
             },
         )
     finally:
-        await manager.disconnect(session_id)
+        await manager.disconnect(session_id, websocket)

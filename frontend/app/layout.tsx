@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono, Newsreader } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import Navbar from "@/components/Navbar";
+import { Suspense } from "react";
 
 const newsreader = Newsreader({
   variable: "--font-serif",
@@ -53,7 +54,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="min-h-full flex flex-col font-sans bg-[var(--bg-base)] text-[var(--text-primary)]">
         <ThemeProvider>
-          <Navbar />
+          {/* Navbar reads the URL, which dynamic routes (e.g. /teacher/sessions/[id]) only know at request time. */}
+          <Suspense fallback={<div className="h-[60px]" aria-hidden />}>
+            <Navbar />
+          </Suspense>
           <main className="flex-1">{children}</main>
         </ThemeProvider>
       </body>

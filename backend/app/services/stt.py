@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, List, Optional, Union
@@ -234,10 +235,21 @@ class WhisperSTTProvider(BaseSTTProvider):
 
 
 _stt_instance: Optional[BaseSTTProvider] = None
+# The model is preloaded from a worker thread at startup; a student answer arriving meanwhile must
+# wait for that load rather than start a second one.
+_stt_lock = threading.Lock()
 
 
 def get_stt_provider() -> BaseSTTProvider:
     """Singleton factory for STT engine."""
+    global _stt_instance
+    if _stt_instance is not None:
+        return _stt_instance
+    with _stt_lock:
+        return _create_stt_provider()
+
+
+def _create_stt_provider() -> BaseSTTProvider:
     global _stt_instance
     if _stt_instance is None:
         if settings.STT_PROVIDER == "whisper":

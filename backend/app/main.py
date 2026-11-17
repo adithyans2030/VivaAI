@@ -27,15 +27,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await init_db()
     retention_task = None
     sync_task = None
+    stt_task = None
     if settings.ENVIRONMENT != "testing":
         retention_task = asyncio.create_task(run_retention_forever(async_session_factory))
         sync_task = asyncio.create_task(sync_documents_into_vector_store())
+        # Load Whisper now, off the event loop, so the first student answer is not stuck behind
+        # a 20-60 s model load while the UI just shows "Evaluating".
+        stt_task = asyncio.create_task(asyncio.to_thread(_preload_stt))
     logger.info("Database schema initialized. VivaIQ ready.")
     yield
     logger.info("Shutting down VivaIQ services...")
-    for task in (retention_task, sync_task):
+    for task in (retention_task, sync_task, stt_task):
         if task:
             task.cancel()
+
+
+def _preload_stt() -> None:
+    from app.services.stt import get_stt_provider
+
+    try:
+        get_stt_provider()
+        logger.info("Speech-to-text model preloaded.")
+    except Exception as e:  # The first answer will retry and report the error to the student.
+        logger.error(f"Speech-to-text preload failed: {e}")
 
 
 app = FastAPI(

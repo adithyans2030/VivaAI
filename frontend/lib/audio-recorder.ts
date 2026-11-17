@@ -9,8 +9,14 @@ export interface AudioRecorderOptions {
   onAudioChunk: (chunkB64: string, chunkIndex: number) => void;
   onVolumeChange?: (volume: number) => void;
   onSpeechEnd?: (durationMs: number) => void;
+  /** Pause length that ends the answer. Long enough for a student to stop and think. */
   silenceThresholdMs?: number;
+  /** Speech needed before a pause may end the answer, so a cough or click cannot submit it. */
+  minSpeechMs?: number;
 }
+
+/** Normalised level above which a frame counts as speech. */
+const SPEECH_LEVEL = 0.08;
 
 export class AudioStreamRecorder {
   private mediaRecorder: MediaRecorder | null = null;
@@ -22,13 +28,16 @@ export class AudioStreamRecorder {
   private animFrame: number | null = null;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private isSpeaking = false;
+  private speechMs = 0;
+  private lastFrameAt = 0;
   private stopPromise: Promise<number> | null = null;
   private pendingChunks: Promise<void> = Promise.resolve();
   private options: AudioRecorderOptions;
 
   constructor(options: AudioRecorderOptions) {
     this.options = {
-      silenceThresholdMs: 1800,
+      silenceThresholdMs: 3500,
+      minSpeechMs: 800,
       ...options,
     };
   }
@@ -37,6 +46,8 @@ export class AudioStreamRecorder {
     this.chunkIndex = 0;
     this.startTime = Date.now();
     this.isSpeaking = false;
+    this.speechMs = 0;
+    this.lastFrameAt = 0;
     this.stopPromise = null;
     this.pendingChunks = Promise.resolve();
 
@@ -77,9 +88,14 @@ export class AudioStreamRecorder {
       const normalized = Math.min(1.0, avg / 128.0);
       this.options.onVolumeChange?.(normalized);
 
-      // Voice Activity Detection (VAD) logic
-      if (normalized > 0.08) {
-        this.isSpeaking = true;
+      // Voice Activity Detection (VAD): only a real stretch of speech followed by a long pause
+      // ends the answer automatically; the student can always press Submit themselves.
+      const now = performance.now();
+      const frameMs = this.lastFrameAt ? Math.min(now - this.lastFrameAt, 100) : 0;
+      this.lastFrameAt = now;
+      if (normalized > SPEECH_LEVEL) {
+        this.speechMs += frameMs;
+        if (this.speechMs >= (this.options.minSpeechMs ?? 0)) this.isSpeaking = true;
         if (this.silenceTimer) {
           clearTimeout(this.silenceTimer);
           this.silenceTimer = null;

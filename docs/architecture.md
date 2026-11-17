@@ -60,7 +60,7 @@ on throwaway databases. Files live under `DATA_DIR` (`audio/`, `documents/`, `ch
 
 | Path | Role |
 |---|---|
-| `app/login`, `app/student`, `app/teacher`, `app/page.tsx` | Pages (App Router, client components) |
+| `app/login`, `app/student`, `app/teacher`, `app/page.tsx` | Pages (App Router, client components). The teacher workspace has a sidebar layout (`app/teacher/layout.tsx`) and one route per area: `/teacher` (sessions), `/teacher/sessions/[id]`, `/teacher/materials`, `/teacher/subjects`, `/teacher/analytics` |
 | `lib/api.ts` | REST client: token storage, automatic refresh-and-retry on 401, authenticated blob downloads |
 | `lib/ws.ts` | Typed WebSocket client: heartbeat, exponential-backoff reconnect with a fresh ticket |
 | `lib/audio-recorder.ts` | Mic capture, level meter, volume-based end-of-speech detection, ordered chunk flushing |

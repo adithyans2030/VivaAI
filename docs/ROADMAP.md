@@ -20,7 +20,7 @@ Items are grouped by priority. Everything not listed here is implemented and cov
 | GPU job queue for concurrent sessions | Each session calls models directly; concurrent load has not been tested. |
 | Hybrid retrieval (dense + keyword fused) and reranking | `HybridRAGStore` uses dense (Chroma) search, and falls back to keyword overlap only when Chroma is unavailable or returns nothing. The two are not combined, and there is no reranker. |
 | Kokoro TTS | Accepted by config but falls back to browser speech (with a warning). Piper and EdgeTTS work. |
-| Class analytics: score distribution, weak topics, per-student trends | The analytics tab shows averages and counts only. |
+| Class analytics: score distribution, weak topics, per-student trends | The analytics page shows averages and counts (overall and per subject) only. |
 | Session list filters for date and score | Search plus authenticity-flag filter only. |
 | Student UI for data export/deletion | Available via API only (`/auth/me/export-data`, `/auth/me/delete-account-data`). |
 | Automatic expiry of transcripts and reports | Only audio is purged automatically. |

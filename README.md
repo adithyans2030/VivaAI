@@ -21,22 +21,49 @@ in their own words. Teachers review every result and make every decision.
 
 Prerequisites: Python 3.11+, Node.js 20+, ffmpeg on `PATH`.
 
-```bash
-git clone <repo-url> && cd VivaAI
-cp .env.example .env                              # demo profile: DEMO_MODE=true, mock models
-cp frontend/.env.example frontend/.env.local
+All backend commands call the virtual environment's Python **explicitly**. A bare `uvicorn` or `python` can
+silently pick up a system-wide install that lacks Whisper and ChromaDB: the app still starts, but cannot
+hear students.
+
+**Windows (PowerShell)**
+
+```powershell
+git clone <repo-url>; cd VivaAI
+copy .env.example .env                            # demo profile: DEMO_MODE=true, mock models
+copy frontend\.env.example frontend\.env.local
 
 cd backend
 python -m venv .venv
-source .venv/bin/activate                         # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python -m app.scripts.seed                        # admin + demo accounts
-python -m app.scripts.seed_demo                   # course material + two reviewed vivas
-uvicorn app.main:app --port 8000
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python -m app.scripts.seed        # admin + demo accounts
+.\.venv\Scripts\python -m app.scripts.seed_demo   # course material + two reviewed vivas
+.\.venv\Scripts\python -m uvicorn app.main:app --port 8000
+
+# new terminal
+cd frontend; npm install; npm run dev
+```
+
+**Linux / macOS**
+
+```bash
+git clone <repo-url> && cd VivaAI
+cp .env.example .env
+cp frontend/.env.example frontend/.env.local
+
+cd backend
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m app.scripts.seed
+.venv/bin/python -m app.scripts.seed_demo
+.venv/bin/python -m uvicorn app.main:app --port 8000
 
 # new terminal
 cd frontend && npm install && npm run dev
 ```
+
+**Check it is the right backend:** open http://localhost:8000/ready. With real models it must show
+`"stt_model_loaded": true`. An "Internal Server Error" there usually means the backend was started with the
+wrong Python.
 
 Open http://localhost:3000 and sign in:
 
@@ -47,7 +74,7 @@ Open http://localhost:3000 and sign in:
 | Admin | `admin@vivaiq.edu` | `admin123` |
 
 The demo profile uses **mock** models: questions are scripted and transcripts are canned. To run real
-vivas, install `requirements-ml.txt`, run Ollama, and set `DEMO_MODE=false`, `LLM_PROVIDER=ollama`,
+vivas, install `requirements-ml.txt` (`.\.venv\Scripts\python -m pip install -r requirements-ml.txt`), run Ollama, and set `DEMO_MODE=false`, `LLM_PROVIDER=ollama`,
 `STT_PROVIDER=whisper` (details in the [runbook](docs/runbook.md#2-configuration)).
 
 > The root `.env` overrides `backend/.env` if both exist.
@@ -62,7 +89,8 @@ model (≈ 2 GB), or a cloud LLM with no VRAM use. All model sizes are environme
 ## Development
 
 ```bash
-cd backend && python -m pytest && ruff check . && mypy app
+cd backend && .venv/bin/python -m pytest && .venv/bin/python -m ruff check . && .venv/bin/python -m mypy app
+# Windows: .\.venv\Scripts\python -m pytest   (same pattern for ruff and mypy)
 cd frontend && npx tsc --noEmit && npx eslint . --max-warnings 0 && npm run build
 ```
 

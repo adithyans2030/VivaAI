@@ -1,7 +1,7 @@
 """WebSocket connection manager for handling active viva sessions and backpressure."""
 
 import asyncio
-from typing import Dict
+from typing import Dict, Optional
 
 from fastapi import WebSocket
 
@@ -38,9 +38,16 @@ class SessionConnectionManager:
                 self._repeat_counts[session_id] = {}
         logger.info(f"WebSocket client connected for viva session '{session_id}'")
 
-    async def disconnect(self, session_id: str) -> None:
-        """Remove WebSocket connection and clean up session buffers on departure."""
+    async def disconnect(self, session_id: str, websocket: Optional[WebSocket] = None) -> None:
+        """Remove WebSocket connection and clean up session buffers on departure.
+
+        When ``websocket`` is given, nothing is removed if a newer connection has already replaced
+        it: on a reconnect the old handler exits after the new one registered, and must not delete
+        the new connection (which would silently drop every later message to the student).
+        """
         async with self._lock:
+            if websocket is not None and self._active_connections.get(session_id) is not websocket:
+                return
             if session_id in self._active_connections:
                 del self._active_connections[session_id]
             if session_id in self._audio_buffers:
@@ -78,6 +85,15 @@ class SessionConnectionManager:
         audio_data = bytes(buf)
         self._audio_buffers[session_id] = bytearray()
         return audio_data
+
+    def clear_audio_buffer(self, session_id: str) -> None:
+        """Discard buffered audio, e.g. a half-spoken answer abandoned by a repeat or a new question.
+
+        Each recording is a self-contained WebM stream; leaving an old one in the buffer would
+        prepend it to the next answer, and only the first stream would be transcribed.
+        """
+        if session_id in self._audio_buffers:
+            self._audio_buffers[session_id] = bytearray()
 
     def get_repeat_count(self, session_id: str, turn_id: str) -> int:
         """Get number of times a question repeat was requested for turn."""

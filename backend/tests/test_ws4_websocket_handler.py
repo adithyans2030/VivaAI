@@ -1,8 +1,9 @@
 """Tests for WS-4 WebSocket session handler fixes: buffer capping, invalid turn rejection, empty audio defense, repeat limit, and recovery state."""
 
-from typing import AsyncGenerator
+from typing import AsyncGenerator, cast
 
 import pytest
+from fastapi import WebSocket
 from starlette.testclient import TestClient
 
 import app.ws.session_handler as ws_handler
@@ -30,6 +31,43 @@ def test_buffer_overflow_defense():
         manager.append_audio_chunk(sess_id, one_mb)
     assert "AUDIO_BUFFER_OVERFLOW" in str(exc_info.value)
     manager.consume_audio_buffer(sess_id)
+
+
+def test_clear_audio_buffer_discards_abandoned_recording():
+    """A repeat/new question must not prepend the abandoned WebM stream to the next answer."""
+    sess_id = "test-clear-session"
+    manager.append_audio_chunk(sess_id, b"old-recording")
+    manager.clear_audio_buffer(sess_id)
+    manager.append_audio_chunk(sess_id, b"new-answer")
+    assert manager.consume_audio_buffer(sess_id) == b"new-answer"
+
+
+@pytest.mark.asyncio
+async def test_stale_disconnect_keeps_replacement_connection():
+    """On reconnect the old handler exits last; it must not unregister the new socket."""
+
+    class FakeWS:
+        async def accept(self):
+            pass
+
+        async def close(self, code=1000, reason=""):
+            pass
+
+        async def send_json(self, message):
+            self.sent = message
+
+    sess_id = "test-reconnect-session"
+    fake_new = FakeWS()
+    old_ws, new_ws = cast(WebSocket, FakeWS()), cast(WebSocket, fake_new)
+    await manager.connect(sess_id, old_ws)
+    await manager.connect(sess_id, new_ws)
+
+    await manager.disconnect(sess_id, old_ws)
+    assert await manager.send_json(sess_id, {"type": "pong"}) is True
+    assert fake_new.sent == {"type": "pong"}
+
+    await manager.disconnect(sess_id, new_ws)
+    assert await manager.send_json(sess_id, {"type": "pong"}) is False
 
 
 def test_ws4_handler_edge_cases(
