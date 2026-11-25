@@ -115,7 +115,7 @@ The reference design moves away from generic developer-dashboard aesthetics in f
 ## 7. Verification & Visual Parity Checklist
 
 - [x] **Light Mode & Dark Mode Themes**: Supported seamlessly via `ThemeProvider` and CSS variables (`:root` and `.dark`), persistent across page refreshes.
-- [x] **Typography Fidelity**: Google Font `Newsreader` (weights 300-600, roman and italic) and `Inter` loaded in Next.js `layout.tsx`.
+- [x] **Typography Fidelity**: Google Font `Newsreader` (weights 300-600, roman and italic) and `Inter` loaded from Google Fonts in `frontend/index.html`.
 - [x] **Ambient Concentric Rings**: Implemented via `.ambient-rings` CSS utility on the hero section.
 - [x] **Advisory Guardrails**: All pages explicitly display the non-punitive notice: *"Your assessment supports a conversation. It is advisory only, never a cheating detector or a final judgement."*
 - [x] **Responsive Breakpoints**: Desktop 50/50 split cleanly collapses into vertical stacked views on tablet and mobile viewports.

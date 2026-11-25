@@ -3,7 +3,7 @@
 ## 1. System overview
 
 ```
-Browser (Next.js)
+Browser (React + Vite SPA)
   ├─ REST (fetch, bearer JWT) ───────────────►  FastAPI  /api/v1
   └─ WebSocket (single-use ticket) ──────────►  /api/v1/ws/sessions/{id}
                                                    │
@@ -60,14 +60,15 @@ on throwaway databases. Files live under `DATA_DIR` (`audio/`, `documents/`, `ch
 
 | Path | Role |
 |---|---|
-| `app/login`, `app/student`, `app/teacher`, `app/page.tsx` | Pages (App Router, client components). The teacher workspace has a sidebar layout (`app/teacher/layout.tsx`) and one route per area: `/teacher` (sessions), `/teacher/sessions/[id]`, `/teacher/materials`, `/teacher/subjects`, `/teacher/analytics` |
-| `lib/api.ts` | REST client: token storage, automatic refresh-and-retry on 401, authenticated blob downloads |
-| `lib/ws.ts` | Typed WebSocket client: heartbeat, exponential-backoff reconnect with a fresh ticket |
-| `lib/audio-recorder.ts` | Mic capture, level meter, volume-based end-of-speech detection, ordered chunk flushing |
-| `components/` | Audio orb, mic-check/consent dialog, navbar (role-aware), theme provider, UI primitives |
+| `src/main.tsx` | Entry point and route table (React Router): `/`, `/login`, `/student`, `/design-system`, and the teacher routes |
+| `src/pages/` | One component per page. `pages/teacher/TeacherLayout.tsx` is the sidebar shell for `/teacher` (sessions), `/teacher/sessions/:id`, `/teacher/materials`, `/teacher/subjects`, `/teacher/analytics` |
+| `src/lib/api.ts` | REST client: token storage, automatic refresh-and-retry on 401, authenticated blob downloads |
+| `src/lib/ws.ts` | Typed WebSocket client: heartbeat, exponential-backoff reconnect with a fresh ticket |
+| `src/lib/audio-recorder.ts` | Mic capture, level meter, volume-based end-of-speech detection, ordered chunk flushing |
+| `src/components/` | Audio orb, mic-check/consent dialog, navbar (role-aware), theme provider, UI primitives |
 
-Theming uses CSS custom properties with light and dark token sets (`app/globals.css`); fonts are self-hosted
-via `next/font`.
+Theming uses CSS custom properties with light and dark token sets (`src/globals.css`); fonts are loaded from
+Google Fonts in `index.html`. Configuration comes from `VITE_*` variables, which Vite inlines at build time.
 
 ## 4. Hardware sizing (4 GB GPU, e.g. GTX 1650)
 

@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VivaIQ Frontend
 
-## Getting Started
+React 19 single-page app built with [Vite](https://vite.dev), [React Router](https://reactrouter.com) and Tailwind CSS 4.
 
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local   # Windows: copy .env.example .env.local
+npm install
+npm run dev                  # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The backend must be running (default `http://localhost:8000`). Port 3000 is fixed because it is the origin the
+backend allows in `CORS_ORIGINS`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server with hot reload on port 3000 |
+| `npm run build` | Type-check, then build the static bundle into `dist/` |
+| `npm run preview` | Serve the built `dist/` on port 3000 |
+| `npm run lint` | ESLint (TypeScript, React hooks, fast-refresh rules) |
+| `npm run type-check` | TypeScript only |
 
-## Learn More
+## Configuration
 
-To learn more about Next.js, take a look at the following resources:
+Vite only exposes variables prefixed with `VITE_`, and inlines them **at build time**. Change them, then restart
+`npm run dev` or rebuild.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Variable | Default | Purpose |
+|---|---|---|
+| `VITE_API_URL` | `http://localhost:8000/api/v1` | REST API base |
+| `VITE_WS_URL` | `ws://localhost:8000/api/v1/ws` | WebSocket base for the viva room |
+| `VITE_DEMO_MODE` | `false` | Shows one-click demo accounts on `/login`. The demo passwords end up in the public bundle, so never enable this on a real deployment |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Layout
 
-## Deploy on Vercel
+```
+index.html              page shell: fonts, title, theme-flash guard
+src/main.tsx            route table
+src/RootLayout.tsx      navbar + active page
+src/pages/              one component per route (pages/teacher/* share TeacherLayout)
+src/components/         shared UI (audio orb, mic check, navbar, theme, primitives)
+src/lib/                API + WebSocket clients, audio recorder, helpers
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+`@/` is an alias for `src/`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deploying
+
+`docker build` produces an nginx image serving `dist/` on port 3000, with every route falling back to
+`index.html` so deep links such as `/teacher/sessions/<id>` work. Pass the `VITE_*` values as `--build-arg`s.
+Any other static host works the same way, as long as unknown paths are rewritten to `index.html`.

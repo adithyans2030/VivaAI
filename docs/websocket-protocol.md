@@ -1,7 +1,7 @@
 # VivaIQ WebSocket Protocol
 
 **Endpoint:** `GET /api/v1/ws/sessions/{session_id}` (WebSocket upgrade)
-**Source of truth:** `backend/app/ws/session_handler.py` (server), `frontend/lib/ws.ts` (client)
+**Source of truth:** `backend/app/ws/session_handler.py` (server), `frontend/src/lib/ws.ts` (client)
 
 Every message in both directions is a JSON object `{"type": string, "payload": object}`.
 

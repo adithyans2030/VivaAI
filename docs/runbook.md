@@ -40,7 +40,7 @@ Two working profiles:
 
 Set a real `SECRET_KEY` (`python -c "import secrets; print(secrets.token_hex(32))"`); with the placeholder,
 every backend restart logs everyone out. For the one-click demo buttons on the login page, set
-`NEXT_PUBLIC_DEMO_MODE=true` in `frontend/.env.local` (demo machines only).
+`VITE_DEMO_MODE=true` in `frontend/.env.local` (demo machines only).
 
 Full variable reference: [`.env.example`](../.env.example). Provider data flows: [privacy-and-retention.md](privacy-and-retention.md#4-data-leaving-the-server).
 
@@ -135,7 +135,7 @@ Optional: `pip install pre-commit && pre-commit install` to run them on every co
 
 ## 7. Stakeholder demo script (≈ 10 minutes)
 
-**Setup:** demo profile or real models, both seed scripts run, `NEXT_PUBLIC_DEMO_MODE=true`, a headset mic.
+**Setup:** demo profile or real models, both seed scripts run, `VITE_DEMO_MODE=true`, a headset mic.
 Open http://localhost:3000.
 
 ### Scene 1: Landing page (1 min)

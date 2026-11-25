@@ -70,7 +70,7 @@ What VivaIQ does to protect accounts and student data, and the known gaps. Pair 
 | Tokens in `localStorage` | Exposed if an XSS bug is ever introduced | httpOnly cookie session (ROADMAP) |
 | Logout revokes the refresh token, not the current access token | A stolen access token stays valid until it expires (≤ 30 min) | Short expiry; add an access-token deny-list if needed |
 | No account lockout beyond the per-minute rate limit | Slow brute force is possible | Lockout/backoff per account |
-| Demo passwords are bundled when `NEXT_PUBLIC_DEMO_MODE=true` | Fine for a demo machine; never enable on a public deployment | Documented in `frontend/.env.example` |
+| Demo passwords are bundled when `VITE_DEMO_MODE=true` | Fine for a demo machine; never enable on a public deployment | Documented in `frontend/.env.example` |
 
 ## Reporting
 

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" class="h-full antialiased dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <title>VivaIQ — AI Voice Examiner</title>
+    <meta
+      name="description"
+      content="A thoughtful viva voce examination platform powered by grounded AI voice and explainable authenticity analysis."
+    />
+    <meta name="keywords" content="viva, AI examiner, voice assessment, oral exam, academic integrity" />
+    <meta name="author" content="VivaIQ" />
+    <meta property="og:title" content="VivaIQ — AI Voice Examiner" />
+    <meta property="og:description" content="Thoughtful AI-powered oral examinations for students and teachers." />
+    <meta property="og:type" content="website" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,wght@0,300;0,400;0,500;1,300;1,400;1,500&display=swap"
+    />
+
+    <!-- Apply a saved light theme before first paint to avoid a dark flash. -->
+    <script>
+      try {
+        if (localStorage.getItem("vivaiq_theme") === "light") {
+          var c = document.documentElement.classList;
+          c.remove("dark");
+          c.add("light");
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="min-h-full flex flex-col font-sans bg-[var(--bg-base)] text-[var(--text-primary)]">
+    <div id="root" class="min-h-full flex flex-col flex-1"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

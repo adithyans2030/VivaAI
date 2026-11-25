@@ -84,7 +84,7 @@ jobs:
           path: backend/coverage.xml
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # Frontend: TypeScript + ESLint + Next.js Build
+  # Frontend: TypeScript + ESLint + Vite Build
   # ─────────────────────────────────────────────────────────────────────────────
   frontend:
     name: "Frontend — Node ${{ matrix.node-version }}"
@@ -119,11 +119,11 @@ jobs:
       - name: Dependency audit (production deps, high+)
         run: npm audit --omit=dev --audit-level=high
 
-      - name: Next.js — production build (validates compilation + static generation)
+      - name: Vite — production build
         env:
-          NEXT_PUBLIC_API_URL: "http://localhost:8000"
-          NEXT_PUBLIC_WS_URL: "ws://localhost:8000"
-          NEXT_PUBLIC_DEMO_MODE: "false"
+          VITE_API_URL: "http://localhost:8000/api/v1"
+          VITE_WS_URL: "ws://localhost:8000/api/v1/ws"
+          VITE_DEMO_MODE: "false"
         run: npm run build
 
   # ─────────────────────────────────────────────────────────────────────────────
