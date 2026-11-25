@@ -94,45 +94,76 @@ function formatErrorDetail(body: { detail?: unknown; message?: unknown }): strin
   return typeof message === "string" ? message : null;
 }
 
+const USER_CACHE_KEY = "vivaiq_user";
+
+/**
+ * Every request carries this header. The session lives in httpOnly cookies the page cannot read;
+ * the backend refuses cookie-authenticated writes without the header, which a cross-site page
+ * cannot add (CSRF protection).
+ */
+const BASE_HEADERS: Record<string, string> = { "X-VivaIQ-CSRF": "1" };
+
+function readCachedUser(): User | null {
+  try {
+    const raw = localStorage.getItem(USER_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedUser(user: User | null) {
+  try {
+    if (user) localStorage.setItem(USER_CACHE_KEY, JSON.stringify(user));
+    else localStorage.removeItem(USER_CACHE_KEY);
+  } catch {
+    // Storage blocked (private mode): the profile is simply fetched again.
+  }
+}
+
+// Tokens used to live in localStorage. Remove any left behind by an older build.
+try {
+  localStorage.removeItem("vivaiq_token");
+  localStorage.removeItem("vivaiq_refresh");
+} catch {
+  // Storage unavailable: nothing to clean up.
+}
+
 class ApiClient {
-  private getToken(): string | null {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("vivaiq_token");
-  }
-
   private refreshInFlight: Promise<boolean> | null = null;
+  /** When the last successful refresh finished (ms). */
+  private lastRefreshAt = 0;
 
-  setToken(token: string, refreshToken?: string) {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("vivaiq_token", token);
-      if (refreshToken) localStorage.setItem("vivaiq_refresh", refreshToken);
-    }
+  /** Profile of the signed-in user from the last successful `getMe`. Not a credential. */
+  getCachedUser(): User | null {
+    return readCachedUser();
   }
 
-  clearToken() {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("vivaiq_token");
-      localStorage.removeItem("vivaiq_refresh");
-      localStorage.removeItem("vivaiq_user");
-    }
+  private clearSession() {
+    writeCachedUser(null);
   }
 
-  /** Exchange the stored refresh token (rotated server-side). Concurrent 401s share one attempt. */
-  private refreshAccessToken(): Promise<boolean> {
+  /** Same-origin cookies go with every request; tokens never touch page script. */
+  private send(endpoint: string, options: RequestInit = {}): Promise<Response> {
+    return fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      credentials: "include",
+      headers: { ...BASE_HEADERS, ...(options.headers as Record<string, string>) },
+    });
+  }
+
+  /**
+   * Rotate the session using the httpOnly refresh cookie. Concurrent 401s share one attempt, and a
+   * request sent before the last successful refresh just retries: rotating again would be wasted, and
+   * a rotation cut off by a navigation leaves the browser holding a revoked refresh cookie.
+   */
+  private refreshSession(requestSentAt: number): Promise<boolean> {
     if (this.refreshInFlight) return this.refreshInFlight;
-    const refreshToken = typeof window !== "undefined" ? localStorage.getItem("vivaiq_refresh") : null;
-    if (!refreshToken) return Promise.resolve(false);
-
-    this.refreshInFlight = fetch(`${API_BASE}/auth/refresh`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    })
-      .then(async (res) => {
-        if (!res.ok) return false;
-        const data: { access_token: string; refresh_token: string } = await res.json();
-        this.setToken(data.access_token, data.refresh_token);
-        return true;
+    if (requestSentAt < this.lastRefreshAt) return Promise.resolve(true);
+    this.refreshInFlight = this.send("/auth/refresh", { method: "POST" })
+      .then((res) => {
+        if (res.ok) this.lastRefreshAt = Date.now();
+        return res.ok;
       })
       .catch(() => false)
       .finally(() => {
@@ -142,29 +173,19 @@ class ApiClient {
   }
 
   private async request<T>(endpoint: string, options: RequestInit = {}, isRetry = false): Promise<T> {
-    const token = this.getToken();
-    const headers: Record<string, string> = {
-      ...(options.headers as Record<string, string>),
-    };
-
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
+    const headers: Record<string, string> = { ...(options.headers as Record<string, string>) };
     if (!(options.body instanceof FormData)) {
       headers["Content-Type"] = "application/json";
     }
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      ...options,
-      headers,
-    });
+    const sentAt = Date.now();
+    const response = await this.send(endpoint, { ...options, headers });
 
     if (response.status === 401) {
-      if (!isRetry && (await this.refreshAccessToken())) {
+      if (!isRetry && (await this.refreshSession(sentAt))) {
         return this.request<T>(endpoint, options, true);
       }
-      this.clearToken();
+      this.clearSession();
       if (typeof window !== "undefined" && !window.location.pathname.includes("/login")) {
         // Plain module (no router available); a full navigation also resets client state.
         window.location.href = "/login";
@@ -185,12 +206,13 @@ class ApiClient {
   }
 
   // Auth
-  async login(username: string, password: string):Promise<{ access_token: string; refresh_token: string }> {
+  /** Signs in; the backend answers with httpOnly session cookies. Token fields in the body are ignored. */
+  async login(username: string, password: string): Promise<void> {
     const form = new URLSearchParams();
     form.append("username", username);
     form.append("password", password);
 
-    const res = await fetch(`${API_BASE}/auth/login`, {
+    const res = await this.send("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form.toString(),
@@ -198,37 +220,23 @@ class ApiClient {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Invalid email or password");
+      throw new Error(formatErrorDetail(err) || "Invalid email or password");
     }
-
-    const data = await res.json();
-    this.setToken(data.access_token, data.refresh_token);
-    return data;
   }
 
-  /** Revoke the refresh token server-side, then forget local credentials. */
+  /** Revoke the refresh token server-side and clear the session cookies. */
   async logout(): Promise<void> {
-    const refreshToken = typeof window !== "undefined" ? localStorage.getItem("vivaiq_refresh") : null;
     try {
-      await fetch(`${API_BASE}/auth/logout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(this.getToken() ? { Authorization: `Bearer ${this.getToken()}` } : {}),
-        },
-        body: refreshToken ? JSON.stringify({ refresh_token: refreshToken }) : undefined,
-      });
+      await this.send("/auth/logout", { method: "POST" });
     } catch {
-      // Offline logout still clears local credentials.
+      // Offline: the cookies expire on their own; forget the cached profile regardless.
     }
-    this.clearToken();
+    this.clearSession();
   }
 
   async getMe(): Promise<User> {
     const user = await this.request<User>("/auth/me");
-    if (typeof window !== "undefined") {
-      localStorage.setItem("vivaiq_user", JSON.stringify(user));
-    }
+    writeCachedUser(user);
     return user;
   }
 
@@ -321,13 +329,11 @@ class ApiClient {
     });
   }
 
-  /** Authenticated binary download (plain links/<audio src> cannot send the bearer header). */
+  /** Authenticated binary download (the session cookie goes with it). */
   private async fetchBlob(endpoint: string, isRetry = false): Promise<Blob> {
-    const token = this.getToken();
-    const response = await fetch(`${API_BASE}${endpoint}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (response.status === 401 && !isRetry && (await this.refreshAccessToken())) {
+    const sentAt = Date.now();
+    const response = await this.send(endpoint);
+    if (response.status === 401 && !isRetry && (await this.refreshSession(sentAt))) {
       return this.fetchBlob(endpoint, true);
     }
     if (!response.ok) {

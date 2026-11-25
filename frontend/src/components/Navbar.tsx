@@ -14,17 +14,14 @@ export default function Navbar() {
 
   useEffect(() => {
     let cancelled = false;
-    // Show the cached user immediately, then confirm against the API. Visitors without a
-    // token are left alone, so public pages never bounce to /login on a 401.
+    // Show the cached profile immediately, then confirm against the API (the session itself is an
+    // httpOnly cookie the page cannot see). Visitors who never signed in are left alone, so public
+    // pages never bounce to /login on a 401.
     Promise.resolve()
       .then(() => {
-        if (!localStorage.getItem("vivaiq_token")) {
-          if (!cancelled) setUser(null);
-          return null;
-        }
-        const cached = localStorage.getItem("vivaiq_user");
-        if (cached && !cancelled) setUser(JSON.parse(cached) as User);
-        return api.getMe();
+        const cached = api.getCachedUser();
+        if (!cancelled) setUser(cached);
+        return cached ? api.getMe() : null;
       })
       .then((me) => {
         if (!cancelled && me) setUser(me);

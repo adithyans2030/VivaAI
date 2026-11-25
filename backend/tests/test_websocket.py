@@ -13,6 +13,13 @@ from app.models.user import User
 from tests.conftest import test_async_session
 
 
+def _ticket(client: TestClient, session_id: str, token: str) -> str:
+    """Tickets are single-use, so every connection needs a fresh one."""
+    resp = client.post(f"/api/v1/sessions/{session_id}/ws-ticket", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+    return resp.json()["ticket"]
+
+
 def test_websocket_viva_flow(
     student_user: User,
     teacher_user: User,
@@ -39,7 +46,7 @@ def test_websocket_viva_flow(
     with TestClient(app) as client:
         # 1. Test unauthorized connection (invalid token)
         try:
-            with client.websocket_connect("/api/v1/ws/sessions/invalid-session?token=bad-token") as ws:
+            with client.websocket_connect("/api/v1/ws/sessions/invalid-session?ticket=bad-ticket") as ws:
                 pass
         except Exception:
             pass
@@ -65,7 +72,9 @@ def test_websocket_viva_flow(
         # 4. Connect before consent -> Expect rejection
         rejected = False
         try:
-            with client.websocket_connect(f"/api/v1/ws/sessions/{session_id}?token={student_token}") as ws:
+            with client.websocket_connect(
+                f"/api/v1/ws/sessions/{session_id}?ticket={_ticket(client, session_id, student_token)}"
+            ) as ws:
                 pass
         except Exception:
             rejected = True
@@ -80,7 +89,9 @@ def test_websocket_viva_flow(
         assert consent_resp.status_code == 200
 
         # 6. Connect WebSocket successfully after consent
-        with client.websocket_connect(f"/api/v1/ws/sessions/{session_id}?token={student_token}") as ws:
+        with client.websocket_connect(
+            f"/api/v1/ws/sessions/{session_id}?ticket={_ticket(client, session_id, student_token)}"
+        ) as ws:
             # 6.1 Reconnection handling: Server sends session_state immediately on connect
             init_msg = ws.receive_json()
             assert init_msg["type"] == "session_state"

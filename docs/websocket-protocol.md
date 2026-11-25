@@ -20,14 +20,15 @@ Tickets are **single-use** and expire after **30 seconds**. Because a ticket is 
 **every reconnect needs a new ticket**; `VivaWebSocketClient` does this automatically through its
 `getTicket` option.
 
-> `?token=<access JWT>` is still accepted as a fallback (the test suite uses it). Browsers should always
-> use tickets: URLs end up in proxy and access logs, and a ticket is worthless once used.
+Tickets are the **only** accepted authentication. An access JWT in the URL is refused (URLs end up in
+proxy and access logs; a ticket is worthless once used), and the browser's auth cookies are ignored on the
+WebSocket so that another site cannot open a connection as the user.
 
 ### 1.2 Close codes
 
 | Code | Meaning |
 |---|---|
-| `4401` | Ticket/token invalid, expired or already used |
+| `4401` | Ticket missing, invalid, expired or already used |
 | `4404` | Session does not exist |
 | `4403` | Not this student's session, or recording consent has not been given |
 | `1000` | Normal close, idle timeout (60 s without any client message), or replaced by a newer connection for the same session |

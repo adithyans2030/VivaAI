@@ -62,7 +62,7 @@ on throwaway databases. Files live under `DATA_DIR` (`audio/`, `documents/`, `ch
 |---|---|
 | `src/main.tsx` | Entry point and route table (React Router): `/`, `/login`, `/student`, `/design-system`, and the teacher routes |
 | `src/pages/` | One component per page. `pages/teacher/TeacherLayout.tsx` is the sidebar shell for `/teacher` (sessions), `/teacher/sessions/:id`, `/teacher/materials`, `/teacher/subjects`, `/teacher/analytics` |
-| `src/lib/api.ts` | REST client: token storage, automatic refresh-and-retry on 401, authenticated blob downloads |
+| `src/lib/api.ts` | REST client: cookie session (`credentials: "include"`, CSRF header), automatic refresh-and-retry on 401, authenticated blob downloads |
 | `src/lib/ws.ts` | Typed WebSocket client: heartbeat, exponential-backoff reconnect with a fresh ticket |
 | `src/lib/audio-recorder.ts` | Mic capture, level meter, volume-based end-of-speech detection, ordered chunk flushing |
 | `src/components/` | Audio orb, mic-check/consent dialog, navbar (role-aware), theme provider, UI primitives |

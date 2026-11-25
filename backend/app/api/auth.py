@@ -2,12 +2,13 @@
 
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_role
+from app.core.auth_cookies import REFRESH_COOKIE, clear_auth_cookies, require_csrf_header, set_auth_cookies
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
@@ -93,6 +94,7 @@ async def create_privileged_user(
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     request: Request,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
     """OAuth2 compatible token login with rate limiting."""
@@ -123,6 +125,9 @@ async def login_for_access_token(
     access_token = create_access_token(subject=user.id, role=user.role.value)
     refresh_token = create_refresh_token(subject=user.id, role=user.role.value)
 
+    # Browser session: httpOnly cookies. The body keeps the tokens for API clients and Swagger;
+    # the frontend ignores them.
+    set_auth_cookies(response, access_token, refresh_token)
     return Token(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -131,14 +136,26 @@ async def login_for_access_token(
     )
 
 
-@router.post("/refresh", response_model=Token)
+@router.post("/refresh", response_model=Token, response_model_exclude_none=True)
 async def refresh_access_token(
-    body: RefreshTokenRequest,
+    request: Request,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
+    body: Optional[RefreshTokenRequest] = None,
 ) -> Token:
-    """Exchange a valid refresh token for a fresh access token with token rotation (WS-2.3)."""
+    """Exchange a valid refresh token for new tokens, with rotation (WS-2.3).
+
+    API clients send `{"refresh_token"}` and get the new tokens in the body. The browser sends its
+    refresh cookie and gets new cookies only, so script in the page can never read a token.
+    """
+    from_cookie = body is None
+    presented = body.refresh_token if body else request.cookies.get(REFRESH_COOKIE)
+    if not presented:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
+    if from_cookie:
+        require_csrf_header(request)
     try:
-        payload = decode_token(body.refresh_token)
+        payload = decode_token(presented)
         if payload.get("type") != "refresh":
             raise ValueError("Invalid token type")
         old_jti = payload.get("jti")
@@ -169,29 +186,37 @@ async def refresh_access_token(
     new_access = create_access_token(subject=user.id, role=user.role.value)
     new_refresh = create_refresh_token(subject=user.id, role=user.role.value)
 
-    return Token(
-        access_token=new_access,
-        refresh_token=new_refresh,
-        token_type="bearer",
-        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
+    expires_in = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    if from_cookie:
+        set_auth_cookies(response, new_access, new_refresh)
+        return Token(token_type="bearer", expires_in=expires_in)
+    return Token(access_token=new_access, refresh_token=new_refresh, token_type="bearer", expires_in=expires_in)
 
 
 @router.post("/logout")
 async def logout(
-    current_user: Annotated[User, Depends(get_current_user)],
+    request: Request,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
     body: Optional[RefreshTokenRequest] = None,
 ) -> dict:
-    """Revoke tokens upon logout (WS-2.3)."""
-    if body and body.refresh_token:
+    """Revoke the refresh token (body or cookie) and clear the session cookies (WS-2.3).
+
+    No valid access token is required: holding the refresh token is proof enough to revoke it, and
+    a user whose access token has expired must still be able to log out.
+    """
+    presented = body.refresh_token if body else request.cookies.get(REFRESH_COOKIE)
+    if presented and not body:
+        require_csrf_header(request)
+    if presented:
         try:
-            payload = decode_token(body.refresh_token)
+            payload = decode_token(presented)
             jti = payload.get("jti")
-            if jti and payload.get("sub") == current_user.id:
+            if jti and payload.get("type") == "refresh":
                 await auth_state.revoke_once(db, jti, float(payload["exp"]))
         except Exception:
             pass
+    clear_auth_cookies(response)
     return {"message": "Successfully logged out and revoked session token"}
 
 

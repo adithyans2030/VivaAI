@@ -30,14 +30,15 @@ Items are grouped by priority. Everything not listed here is implemented and cov
 
 ## Recently completed
 
+- Browser session moved from `localStorage` tokens to httpOnly cookies with a CSRF header check.
+- WebSocket accepts single-use tickets only (the `?token=` fallback is gone).
+- Prompt-injection flags log the turn ID instead of the student's words.
 - Alembic migrations (`backend/alembic/`), applied automatically at startup; pre-migration databases are adopted without data loss.
 - PDF export of session reports.
 - Refresh-token revocation, WebSocket tickets and rate limits moved from process memory into the database.
 
 ## Clean-up
 
-- Remove the `?token=` WebSocket fallback once tests use tickets.
-- Move auth tokens from `localStorage` to httpOnly cookies.
 - Merge the two seed scripts (`seed.py`: admin plus simple accounts; `seed_demo.py`: demo data without an admin).
 - PDF reports use DejaVu (Docker) or Arial (Windows), which have no Devanagari glyphs; Hindi text needs `PDF_FONT_PATH` pointing at e.g. Noto Sans Devanagari. Consider bundling a font and fpdf2 fallback fonts.
 - `EMBEDDING_MODEL` is not used: ChromaDB embeds with its built-in all-MiniLM-L6-v2. Wire the setting through a
@@ -47,4 +48,3 @@ Items are grouped by priority. Everything not listed here is implemented and cov
 - Deleting a subject removes its vectors but leaves an empty Chroma collection; drop the collection too.
 - Delete the outdated duplicate `backend/scripts/calibrate_authenticity.py` (the maintained one is `app/scripts/`).
 - Collapse the duplicate audio route (`/audio/{session}/{turn}` and `/sessions/{session}/turns/{turn}/audio`).
-- The grader logs the first 60 characters of an answer flagged for prompt injection; drop the text and log only the turn ID.

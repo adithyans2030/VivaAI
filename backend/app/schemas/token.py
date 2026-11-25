@@ -1,11 +1,15 @@
 """Token Pydantic Schemas."""
 
+from typing import Optional
+
 from pydantic import BaseModel
 
 
 class Token(BaseModel):
-    access_token: str
-    refresh_token: str
+    # Omitted when the browser refreshes with its httpOnly cookie: the new tokens go back
+    # only as cookies, so page script never sees them.
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     expires_in: int
 

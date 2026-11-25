@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
+from app.core.auth_cookies import CSRF_HEADER
 from app.core.config import settings
 from app.core.database import async_session_factory, init_db
 from app.core.errors import VivaIQError, vivaiq_exception_handler
@@ -62,14 +63,14 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
 )
 
-# CORS: explicit origins only. Auth uses bearer tokens (not cookies), so credentialed
-# requests are never needed and a wildcard can never expose a logged-in session.
+# CORS: explicit origins only ('*' is refused at startup). Credentials are allowed because the
+# browser session lives in httpOnly cookies (see app.core.auth_cookies for the CSRF rule).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.CORS_ORIGINS),
-    allow_credentials=False,
+    allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-Request-ID", CSRF_HEADER],
     expose_headers=["X-Request-ID", "Content-Disposition"],
 )
 

@@ -77,7 +77,8 @@ class GraderService:
         # Handle adversarial prompt injection (Flag for teacher review, do not automatically score 0)
         security_flag = None
         if self.detect_adversarial_injection(answer_clean):
-            logger.warning(f"Adversarial prompt injection pattern detected in answer: '{answer_clean[:60]}...'")
+            # Never log the answer itself: it is student data. The caller logs the turn ID.
+            logger.warning("Adversarial prompt injection pattern detected in a student answer.")
             security_flag = "prompt_injection_attempt"
 
         # Handle "I don't know" or brief admissions of unfamiliarity

@@ -164,6 +164,9 @@ class VivaSessionOrchestrator:
             retrieved_context=retrieved_context,
         )
 
+        if grade_res.security_flag:
+            logger.warning(f"Turn {turn.id} flagged for teacher review: {grade_res.security_flag}")
+
         turn.score_0_10 = grade_res.score_0_10
         turn.rubric_breakdown = {
             **grade_res.rubric.model_dump(),

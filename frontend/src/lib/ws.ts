@@ -103,21 +103,19 @@ export class VivaWebSocketClient {
   private isExplicitlyClosed = false;
 
   /**
+   * @param ticket Single-use ticket from `api.getWsTicket` (the only accepted WebSocket auth).
    * @param options.getTicket Fetches a fresh single-use ticket. Tickets are consumed on
    *   connect, so reconnecting after a network drop needs a new one.
    */
   constructor(
     sessionId: string,
-    authSecret: string,
+    ticket: string,
     handlers: WSEventHandlers = {},
-    options: { isTicket?: boolean; getTicket?: () => Promise<string> } = {}
+    options: { getTicket?: () => Promise<string> } = {}
   ) {
     const wsBase = import.meta.env.VITE_WS_URL || "ws://localhost:8000/api/v1/ws";
-    const authQuery = options.isTicket || options.getTicket || authSecret.startsWith("wst_")
-      ? `ticket=${encodeURIComponent(authSecret)}`
-      : `token=${encodeURIComponent(authSecret)}`;
     this.baseUrl = `${wsBase}/sessions/${sessionId}`;
-    this.url = `${this.baseUrl}?${authQuery}`;
+    this.url = `${this.baseUrl}?ticket=${encodeURIComponent(ticket)}`;
     this.getTicket = options.getTicket;
     this.handlers = handlers;
   }

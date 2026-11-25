@@ -4,7 +4,7 @@ import logging
 import secrets
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Literal, Union
+from typing import List, Literal, Optional, Union
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # Browser sessions use httpOnly cookies. Secure defaults to on in production (HTTPS only).
+    AUTH_COOKIE_SECURE: Optional[bool] = None
+    AUTH_COOKIE_SAMESITE: Literal["lax", "strict", "none"] = "lax"
+    AUTH_COOKIE_DOMAIN: Optional[str] = None
     AUDIO_RETENTION_DAYS: int = 30
 
     # Database
@@ -110,6 +114,13 @@ class Settings(BaseSettings):
 
         if "*" in self.CORS_ORIGINS:
             raise ValueError("CORS_ORIGINS must list explicit origins; '*' is not allowed.")
+
+        if self.AUTH_COOKIE_SECURE is None:
+            self.AUTH_COOKIE_SECURE = self.ENVIRONMENT == "production"
+        if self.AUTH_COOKIE_SAMESITE == "none" and not self.AUTH_COOKIE_SECURE:
+            raise ValueError(
+                "AUTH_COOKIE_SAMESITE='none' requires AUTH_COOKIE_SECURE=true (browsers refuse it otherwise)."
+            )
 
         if self.ENVIRONMENT == "production" and self.DEMO_MODE:
             raise ValueError("DEMO_MODE cannot be enabled in production (it permits mock STT/LLM).")

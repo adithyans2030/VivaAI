@@ -1,12 +1,13 @@
 """FastAPI Route Dependencies."""
 
-from typing import Annotated, Callable, List
+from typing import Annotated, Callable, List, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth_cookies import ACCESS_COOKIE, require_csrf_header
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import decode_token
@@ -14,19 +15,26 @@ from app.models.session import VivaSession
 from app.models.subject import Subject
 from app.models.user import User, UserRole
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login")
+# auto_error=False: the browser authenticates with the httpOnly cookie instead of the header.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 
 
 async def get_current_user(
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    token: Annotated[str, Depends(oauth2_scheme)],
+    bearer_token: Annotated[Optional[str], Depends(oauth2_scheme)],
 ) -> User:
-    """Decode JWT token and retrieve the authenticated user."""
+    """Authenticate with the Bearer header (API clients) or the access cookie (browser)."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    token = bearer_token or request.cookies.get(ACCESS_COOKIE)
+    if not token:
+        raise credentials_exception
+    if not bearer_token:
+        require_csrf_header(request)
     try:
         payload = decode_token(token)
         user_id: str | None = payload.get("sub")

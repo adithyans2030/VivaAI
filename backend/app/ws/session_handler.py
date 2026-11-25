@@ -12,7 +12,6 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.database import async_session_factory
 from app.core.logging import logger
-from app.core.security import decode_token
 from app.models.session import SessionStatus, VivaSession
 from app.models.turn import Turn
 from app.models.user import User
@@ -27,30 +26,21 @@ router = APIRouter(tags=["websocket"])
 IDLE_TIMEOUT_SECONDS = 60.0
 
 
-async def authenticate_ws(
-    websocket: WebSocket, session_id: str, ticket: Optional[str] = None, token: Optional[str] = None
-) -> Optional[User]:
-    """Validate single-use WebSocket ticket (preferred) or fallback JWT token during handshake."""
+async def authenticate_ws(websocket: WebSocket, session_id: str, ticket: Optional[str] = None) -> Optional[User]:
+    """Validate the single-use WebSocket ticket during the handshake.
+
+    Only tickets are accepted: a JWT in the URL would end up in proxy and access logs, and the
+    browser's auth cookies are deliberately not used here (that would invite cross-site WebSocket hijacking).
+    """
     from app.services.auth_state import consume_ticket
 
-    user_id = None
-    if ticket:
-        try:
-            async with async_session_factory() as db:
-                user_id = (await consume_ticket(db, ticket, session_id)).user_id
-        except Exception as e:
-            logger.warning(f"WebSocket ticket auth failed for session {session_id}: {e}")
-            return None
-    elif token:
-        try:
-            payload = decode_token(token)
-            user_id = payload.get("sub")
-            if not user_id or payload.get("type") != "access":
-                return None
-        except Exception as e:
-            logger.warning(f"WebSocket JWT auth failed: {e}")
-            return None
-    else:
+    if not ticket:
+        return None
+    try:
+        async with async_session_factory() as db:
+            user_id = (await consume_ticket(db, ticket, session_id)).user_id
+    except Exception as e:
+        logger.warning(f"WebSocket ticket auth failed for session {session_id}: {e}")
         return None
 
     async with async_session_factory() as db:
@@ -65,12 +55,11 @@ async def viva_session_websocket(
     websocket: WebSocket,
     session_id: str,
     ticket: Optional[str] = Query(None),
-    token: Optional[str] = Query(None),
 ):
-    """Real-time voice viva session WebSocket endpoint supporting tickets, reconnects, and streaming."""
-    user = await authenticate_ws(websocket, session_id, ticket=ticket, token=token)
+    """Real-time voice viva session WebSocket endpoint (ticket auth, reconnects, streaming)."""
+    user = await authenticate_ws(websocket, session_id, ticket=ticket)
     if not user:
-        await websocket.close(code=4401, reason="Authentication failed: invalid or expired ticket/token")
+        await websocket.close(code=4401, reason="Authentication failed: invalid or expired ticket")
         return
 
     # Verify session ownership and consent

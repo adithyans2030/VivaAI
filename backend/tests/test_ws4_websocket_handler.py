@@ -13,6 +13,7 @@ from app.main import app
 from app.models.user import User
 from app.ws.connection_manager import manager
 from tests.conftest import test_async_session
+from tests.test_websocket import _ticket
 
 
 def test_buffer_overflow_defense():
@@ -114,7 +115,9 @@ def test_ws4_handler_edge_cases(
             json={"recording_consent": True},
         )
 
-        with client.websocket_connect(f"/api/v1/ws/sessions/{session_id}?token={student_token}") as ws:
+        with client.websocket_connect(
+            f"/api/v1/ws/sessions/{session_id}?ticket={_ticket(client, session_id, student_token)}"
+        ) as ws:
             # 1. Verify reconnect session_state sent on connect
             state_event = ws.receive_json()
             assert state_event["type"] == "session_state"

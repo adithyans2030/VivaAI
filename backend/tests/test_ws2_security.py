@@ -326,7 +326,8 @@ async def test_cors_preflight_allows_only_configured_origin(client) -> None:
         headers={"Origin": "http://localhost:3000", "Access-Control-Request-Method": "GET"},
     )
     assert ok.headers.get("access-control-allow-origin") == "http://localhost:3000"
-    assert "access-control-allow-credentials" not in ok.headers
+    # Credentials are allowed (cookie session) only because the origin list is explicit.
+    assert ok.headers.get("access-control-allow-credentials") == "true"
 
     evil = await client.options(
         "/api/v1/subjects",

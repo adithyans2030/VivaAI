@@ -8,8 +8,10 @@ The real-time viva channel is documented separately in [websocket-protocol.md](w
 
 ## Conventions
 
-- **Auth:** `Authorization: Bearer <access_token>`. Access tokens last 30 min (`ACCESS_TOKEN_EXPIRE_MINUTES`).
-  The frontend refreshes automatically on a 401 and retries once.
+- **Auth:** API clients send `Authorization: Bearer <access_token>`. The browser frontend uses the httpOnly
+  cookies set by `/auth/login` instead, and sends `X-VivaIQ-CSRF: 1` on every request; cookie-authenticated
+  `POST`/`PUT`/`DELETE` requests without that header get **403**. Access tokens last 30 min
+  (`ACCESS_TOKEN_EXPIRE_MINUTES`). The frontend refreshes automatically on a 401 and retries once.
 - **Errors:** `{"detail": "message"}`. Validation errors (422) return `detail` as a list of `{loc, msg}`.
 - **Request IDs:** every response carries `X-Request-ID` (echoed if you send one) and `X-Process-Time-Ms`.
 - **Roles:** `student`, `teacher`, `admin`. Admins pass every role check.
@@ -39,9 +41,9 @@ Anything else returns **403**. `GET /sessions` applies the same rule as a filter
 | Method | Path | Auth | Notes |
 |---|---|---|---|
 | POST | `/auth/register` | public | Creates a **student** account; any `role` in the body is ignored. Password ≥ 8 chars. Rate limit: 10/min per IP. |
-| POST | `/auth/login` | public | Form-encoded `username` (email) + `password` (OAuth2 password flow). Returns `access_token`, `refresh_token`, `expires_in`. Rate limit: 10/min per IP+email. |
-| POST | `/auth/refresh` | public | `{"refresh_token"}` → new access **and** refresh token. The old refresh token is revoked (rotation, persisted in the DB); reusing it returns 401. |
-| POST | `/auth/logout` | any user | Optional `{"refresh_token"}` to revoke. |
+| POST | `/auth/login` | public | Form-encoded `username` (email) + `password` (OAuth2 password flow). Returns `access_token`, `refresh_token`, `expires_in` and sets the httpOnly session cookies. Rate limit: 10/min per IP+email. |
+| POST | `/auth/refresh` | refresh token | `{"refresh_token"}` → new access **and** refresh token in the body. Without a body, the refresh cookie is used and the new tokens are returned **only as cookies** (needs `X-VivaIQ-CSRF`). Either way the old refresh token is revoked (rotation, persisted in the DB); reusing it returns 401. |
+| POST | `/auth/logout` | refresh token | Revokes the refresh token from the body (`{"refresh_token"}`) or the cookie, and clears the cookies. No valid access token needed. |
 | GET | `/auth/me` | any user | Current profile. |
 | GET | `/auth/me/export-data` | any user | Data export: profile plus every session with turns, transcripts, scores and feedback. |
 | DELETE | `/auth/me/delete-account-data` | any user | Permanently deletes the caller's account, sessions and audio. |
