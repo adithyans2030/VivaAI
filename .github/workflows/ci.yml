@@ -143,13 +143,20 @@ jobs:
 
       - name: Verify backend image starts
         run: |
-          docker run --rm -d \
+          # Mock providers are only accepted with DEMO_MODE=true (enforced at startup).
+          # No --rm, so the logs survive if the container exits during startup.
+          docker run -d \
             -e SECRET_KEY="ci-secret-key-at-least-32-characters-long" \
+            -e DEMO_MODE=true \
             -e STT_PROVIDER=mock -e LLM_PROVIDER=mock -e TTS_PROVIDER=browser \
             -e EMBEDDING_PROVIDER=mock \
             -p 8001:8000 \
             --name vivaiq-smoke \
-            vivaiq-backend:ci &
-          sleep 8
-          curl -sf http://localhost:8001/health || (docker logs vivaiq-smoke && exit 1)
-          docker stop vivaiq-smoke
+            vivaiq-backend:ci
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8001/health; then echo; echo "Backend is up"; break; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' vivaiq-smoke)" != "true" ]; then break; fi
+            sleep 2
+          done
+          curl -sf http://localhost:8001/health >/dev/null || { docker logs vivaiq-smoke; docker rm -f vivaiq-smoke; exit 1; }
+          docker rm -f vivaiq-smoke
